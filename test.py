@@ -13,6 +13,7 @@ from csqa_dataset import CSQADataset
 from torchtext.data import BucketIterator
 from utils import AverageMeter, AccuracyScorer, Predictor
 from utils import (INPUT, LOGICAL_FORM, NER, COREF, PAD_TOKEN)
+from utils import NerLoss, CorefLoss, LogicalFormLoss, MultiTaskLoss
 
 # set root path
 ROOT_PATH = Path(os.path.dirname(__file__))
@@ -53,15 +54,12 @@ def main():
     model = ConvQA(vocabs).to(DEVICE)
 
     # define loss function (criterion)
-    ner_criterion = nn.CrossEntropyLoss()
-    coref_criterion = nn.CrossEntropyLoss()
-    lf_criterion = nn.CrossEntropyLoss(ignore_index=vocabs[LOGICAL_FORM].stoi[PAD_TOKEN])
-
     criterion = {
-        'ner': ner_criterion,
-        'coref': coref_criterion,
-        'logical_form': lf_criterion
-    }
+        'ner': NerLoss,
+        'coref': CorefLoss,
+        'logical_form': LogicalFormLoss,
+        'multi_task': MultiTaskLoss
+    }[args.task](ignore_index=vocabs[LOGICAL_FORM].stoi[PAD_TOKEN])
 
     logger.info(f"=> loading checkpoint '{args.model_path}'")
     if DEVICE.type=='cpu':
@@ -126,14 +124,14 @@ def test(loader, model, vocabs, criterion):
             output = model(input, logical_form[:, :-1])
 
             # prepare targets
-            logical_form = logical_form[:, 1:].contiguous().view(-1) # (batch_size * trg_len)
-            ner = ner.contiguous().view(-1)
-            coref = coref.contiguous().view(-1)
+            target = {
+                'ner': ner.contiguous().view(-1),
+                'coref': coref.contiguous().view(-1),
+                'logical_form': logical_form[:, 1:].contiguous().view(-1) # (batch_size * trg_len)
+            }
 
             # compute loss
-            loss = criterion['logical_form'](output['logical_form'], logical_form) * args.lf_weight
-            loss += criterion['ner'](output['ner'], ner) * args.ner_weight
-            loss += criterion['coref'](output['coref'], coref) * args.coref_weight
+            loss = criterion(output, target)
 
             # record loss
             losses.update(loss.data, input.size(0))

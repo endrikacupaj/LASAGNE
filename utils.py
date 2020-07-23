@@ -41,7 +41,7 @@ SEP_TOKEN = '[SEP]'
 
 class NoamOpt:
     "Optim wrapper that implements rate."
-    def __init__(self, optimizer, model_size=256, factor=1, warmup=2000):
+    def __init__(self, optimizer, model_size=args.embDim, factor=1, warmup=4000):
         self.optimizer = optimizer
         self._step = 0
         self.warmup = warmup
@@ -183,11 +183,8 @@ class AccuracyScorer(object):
         self.results = []
         self.instances = 0
 
-def convert_to_number(s):
-    return int.from_bytes(s.encode(), 'little')
-
 def save_checkpoint(state):
-    filename = f'{ROOT_PATH}/{args.snapshots}/ConvQARR_model_e{state["epoch"]}_v-{state["best_val"]:.2f}.pth.tar'
+    filename = f'{ROOT_PATH}/{args.snapshots}/ConvQA_model_e{state["epoch"]}_v-{state["best_val"]:.2f}.pth.tar'
     torch.save(state, filename)
 
 def init_weights(model):
@@ -195,6 +192,60 @@ def init_weights(model):
     for p in model.parameters():
         if p.dim() > 1:
             nn.init.xavier_uniform_(p)
+
+class NerLoss(nn.Module):
+    '''NER Loss'''
+    def __init__(self, ignore_index):
+        super().__init__()
+        self.criterion = nn.CrossEntropyLoss()
+
+    def forward(self, output, target):
+        return self.criterion(output, target)
+
+class CorefLoss(nn.Module):
+    '''COREF Loss'''
+    def __init__(self, ignore_index):
+        super().__init__()
+        self.criterion = nn.CrossEntropyLoss()
+
+    def forward(self, output, target):
+        return self.criterion(output, target)
+
+class LogicalFormLoss(nn.Module):
+    '''Logical Form Loss'''
+    def __init__(self, ignore_index):
+        super().__init__()
+        self.criterion = nn.CrossEntropyLoss(ignore_index=ignore_index)
+
+    def forward(self, output, target):
+        return self.criterion(output, target)
+
+class MultiTaskLoss(nn.Module):
+    '''Multi Task Learning Loss'''
+    def __init__(self, ignore_index):
+        super().__init__()
+        self.ner_loss = NerLoss(ignore_index)
+        self.coref_loss = CorefLoss(ignore_index)
+        self.lf_loss = LogicalFormLoss(ignore_index)
+
+        self.mml_emp = torch.Tensor([True, True, True])
+        self.log_vars = torch.nn.Parameter(torch.zeros(len(self.mml_emp)))
+
+    def forward(self, output, target):
+        task_losses = torch.stack((self.ner_loss(output['ner'], target['ner']), self.coref_loss(output['coref'], target['coref']), self.lf_loss(output['logical_form'], target['logical_form'])))
+        dtype = task_losses.dtype
+
+        # weighted loss
+        stds = (torch.exp(self.log_vars)**(1/2)).to(DEVICE).to(dtype)
+        weights = 1 / ((self.mml_emp.to(DEVICE).to(dtype)+1)*(stds**2))
+        losses = weights * task_losses + torch.log(stds)
+
+        return {
+            'ner': losses[0],
+            'coref': losses[1],
+            'logical_form': losses[2],
+            'multi_task': losses.mean()
+        }[args.task]
 
 def Embedding(num_embeddings, embedding_dim, padding_idx):
     """Embedding layer"""

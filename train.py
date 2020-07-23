@@ -14,6 +14,7 @@ from csqa_dataset import CSQADataset
 from torchtext.data import BucketIterator
 from utils import NoamOpt, AverageMeter, save_checkpoint, init_weights
 from utils import (INPUT, LOGICAL_FORM, NER, COREF, PAD_TOKEN)
+from utils import NerLoss, CorefLoss, LogicalFormLoss, MultiTaskLoss
 
 # set root path
 ROOT_PATH = Path(os.path.dirname(__file__))
@@ -59,22 +60,15 @@ def main():
     logger.info(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
 
     # define loss function (criterion)
-    ner_criterion = nn.CrossEntropyLoss()
-    coref_criterion = nn.CrossEntropyLoss()
-    lf_criterion = nn.CrossEntropyLoss(ignore_index=vocabs[LOGICAL_FORM].stoi[PAD_TOKEN])
-
-    criteria = {
-        'ner': ner_criterion,
-        'coref': coref_criterion,
-        'logical_form': lf_criterion
-    }
+    criterion = {
+        'ner': NerLoss,
+        'coref': CorefLoss,
+        'logical_form': LogicalFormLoss,
+        'multi_task': MultiTaskLoss
+    }[args.task](ignore_index=vocabs[LOGICAL_FORM].stoi[PAD_TOKEN])
 
     # define optimizer
-    optimizer = NoamOpt(
-        torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9)
-        )
-
-    # optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    optimizer = NoamOpt(torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
 
     if args.resume:
         if os.path.isfile(args.resume):
@@ -113,11 +107,11 @@ def main():
     # run epochs
     for epoch in range(args.start_epoch, args.epochs):
         # train for one epoch
-        train(train_loader, model, vocabs, criteria, optimizer, epoch)
+        train(train_loader, model, vocabs, criterion, optimizer, epoch)
 
         # evaluate on validation set
         if (epoch+1) % args.valfreq == 0:
-            val_loss = validate(val_loader, model, vocabs, criteria)
+            val_loss = validate(val_loader, model, vocabs, criterion)
             if val_loss < best_val:
                 best_val = min(val_loss, best_val)
                 save_checkpoint({
@@ -128,7 +122,7 @@ def main():
                     'curr_val': val_loss})
             logger.info(f'* Val loss: {val_loss:.4f}')
 
-def train(train_loader, model, vocabs, criteria, optimizer, epoch):
+def train(train_loader, model, vocabs, criterion, optimizer, epoch):
     batch_time = AverageMeter()
     losses = AverageMeter()
 
@@ -147,14 +141,14 @@ def train(train_loader, model, vocabs, criteria, optimizer, epoch):
         output = model(input, logical_form[:, :-1])
 
         # prepare targets
-        logical_form = logical_form[:, 1:].contiguous().view(-1) # (batch_size * trg_len)
-        ner = ner.contiguous().view(-1)
-        coref = coref.contiguous().view(-1)
+        target = {
+            'ner': ner.contiguous().view(-1),
+            'coref': coref.contiguous().view(-1),
+            'logical_form': logical_form[:, 1:].contiguous().view(-1) # (batch_size * trg_len)
+        }
 
         # compute loss
-        loss = criteria['logical_form'](output['logical_form'], logical_form) * args.lf_weight
-        loss += criteria['ner'](output['ner'], ner) * args.ner_weight
-        loss += criteria['coref'](output['coref'], coref) * args.coref_weight
+        loss = criterion(output, target)
 
         # record loss
         losses.update(loss.data, input.size(0))
@@ -171,7 +165,7 @@ def train(train_loader, model, vocabs, criteria, optimizer, epoch):
 
         logger.info(f'Epoch: {epoch+1} - Train loss: {losses.val:.4f} ({losses.avg:.4f}) - Batch: {((i+1)/len(train_loader))*100:.2f}% - Time: {batch_time.sum:0.2f}s')
 
-def validate(val_loader, model, vocabs, criteria):
+def validate(val_loader, model, vocabs, criterion):
     losses = AverageMeter()
 
     # switch to evaluate mode
@@ -189,14 +183,17 @@ def validate(val_loader, model, vocabs, criteria):
             output = model(input, logical_form[:, :-1])
 
             # prepare targets
-            logical_form = logical_form[:, 1:].contiguous().view(-1) # (batch_size * trg_len)
-            ner = ner.contiguous().view(-1)
-            coref = coref.contiguous().view(-1)
+            target = {
+                'ner': ner.contiguous().view(-1),
+                'coref': coref.contiguous().view(-1),
+                'logical_form': logical_form[:, 1:].contiguous().view(-1) # (batch_size * trg_len)
+            }
 
             # compute loss
-            loss = criteria['logical_form'](output['logical_form'], logical_form) * args.lf_weight
-            loss += criteria['ner'](output['ner'], ner) * args.ner_weight
-            loss += criteria['coref'](output['coref'], coref) * args.coref_weight
+            loss = criterion(output, target)
+            # loss = criteria['logical_form'](output['logical_form'], logical_form) * args.lf_weight
+            # loss += criteria['ner'](output['ner'], ner) * args.ner_weight
+            # loss += criteria['coref'](output['coref'], coref) * args.coref_weight
 
             # record loss
             losses.update(loss.data, input.size(0))
