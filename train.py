@@ -191,9 +191,6 @@ def validate(val_loader, model, vocabs, criterion):
 
             # compute loss
             loss = criterion(output, target)
-            # loss = criteria['logical_form'](output['logical_form'], logical_form) * args.lf_weight
-            # loss += criteria['ner'](output['ner'], ner) * args.ner_weight
-            # loss += criteria['coref'](output['coref'], coref) * args.coref_weight
 
             # record loss
             losses.update(loss.data, input.size(0))
