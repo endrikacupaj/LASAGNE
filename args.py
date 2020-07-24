@@ -14,6 +14,7 @@ def get_parser():
     # experiments
     parser.add_argument('--snapshots', default='experiments/snapshots', type=str)
     parser.add_argument('--path_results', default='experiments/results', type=str)
+    parser.add_argument('--path_error_analysis', default='experiments/error_analysis', type=str)
 
     # task
     parser.add_argument('--task', default='multi_task', choices=['multi_task', 'ner', 'coref', 'logical_form'], type=str)
@@ -38,6 +39,6 @@ def get_parser():
     parser.add_argument('--batch_size', default=100, type=int)
 
     # test
-    parser.add_argument('--model_path', default='experiments/snapshots/ConvQARR_model_e4_v-0.03.pth.tar', type=str)
+    parser.add_argument('--model_path', default='experiments/snapshots/', type=str)
 
     return parser
