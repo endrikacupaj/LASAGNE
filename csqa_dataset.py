@@ -9,11 +9,8 @@ from glob import glob
 from pathlib import Path
 from transformers import BertTokenizer
 from torchtext.data import Field, Example, Dataset
-import sys
-sys.path.append("..")
-from utils import (INPUT, LOGICAL_FORM, NER, COREF,
-                    START_TOKEN, END_TOKEN, CTX_TOKEN,
-                    PAD_TOKEN, UNK_TOKEN, SEP_TOKEN)
+from utils import (INPUT, LOGICAL_FORM, NER, COREF, START_TOKEN, END_TOKEN,
+                    CTX_TOKEN, PAD_TOKEN, UNK_TOKEN, SEP_TOKEN, PREDICATE, TYPE)
 
 class CSQADataset(object):
     """CSQADataset class"""
@@ -24,7 +21,6 @@ class CSQADataset(object):
         self.train_path = str(self.ROOT_PATH) + data_dir + '/train/*'
         self.val_path = str(self.ROOT_PATH) + data_dir + '/val/*'
         self.test_path = str(self.ROOT_PATH) + data_dir + '/test/*'
-        # self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         self.load_data_and_fields()
 
     def _prepare_data(self, data):
@@ -40,6 +36,8 @@ class CSQADataset(object):
                 ner_tag = []
                 coref = []
                 coref_gold_idx = []
+                predicate_cls = []
+                type_cls = []
 
                 if is_clarification:
                     is_clarification = False
@@ -61,7 +59,6 @@ class CSQADataset(object):
                 if i == 0: # NA + [SEP] + NA + [SEP] + current_question
                     input.extend([  'NA', SEP_TOKEN, 'NA', SEP_TOKEN])
                     ner_tag.extend(['O',  'O',       'O',  'O'])
-                    coref.extend([  '0',  '0',       '0',  '0'])
                 else:
                     # add prev context user
                     for context in prev_user_conv['context']:
@@ -107,14 +104,30 @@ class CSQADataset(object):
 
                     # coref entities - prepare coref values
                     coref_ent = set([action[1] for action in next_system['gold_actions'] if action[0] == 'entity'])
+                    for context in reversed(user['context'] + system['context'] + next_user['context']):
+                        if context[2] in coref_ent and context[4] == 'B':
+                            coref.append('1')
+                            coref_ent.remove(context[2])
+                        else:
+                            coref.append('0')
+
+                    if i == 0:
+                        coref.extend(['0', '0', '0', '0'])
                     if i > 0:
-                        coref.extend(['1' if context[2] in coref_ent else '0' for context in prev_user_conv['context']])
                         coref.append('0')
-                        coref.extend(['1' if context[2] in coref_ent else '0' for context in prev_system_conv['context']])
+                        for context in reversed(prev_system_conv['context']):
+                            if context[2] in coref_ent and context[4] == 'B':
+                                coref.append('1')
+                                coref_ent.remove(context[2])
+                            else:
+                                coref.append('0')
                         coref.append('0')
-                    coref.extend(['1' if context[2] in coref_ent else '0' for context in user['context']])
-                    coref.extend(['1' if context[2] in coref_ent else '0' for context in system['context']])
-                    coref.extend(['1' if context[2] in coref_ent else '0' for context in next_user['context']])
+                        for context in reversed(prev_user_conv['context']):
+                            if context[2] in coref_ent and context[4] == 'B':
+                                coref.append('1')
+                                coref_ent.remove(context[2])
+                            else:
+                                coref.append('0')
 
                     # get gold actions
                     gold_actions = next_system['gold_actions']
@@ -133,12 +146,30 @@ class CSQADataset(object):
 
                     # coref entities - prepare coref values
                     coref_ent = set([action[1] for action in system['gold_actions'] if action[0] == 'entity'])
+                    for context in reversed(user['context']):
+                        if context[2] in coref_ent and context[4] == 'B':
+                            coref.append('1')
+                            coref_ent.remove(context[2])
+                        else:
+                            coref.append('0')
+
+                    if i == 0:
+                        coref.extend(['0', '0', '0', '0'])
                     if i > 0:
-                        coref.extend(['1' if context[2] in coref_ent else '0' for context in prev_user_conv['context']])
                         coref.append('0')
-                        coref.extend(['1' if context[2] in coref_ent else '0' for context in prev_system_conv['context']])
+                        for context in reversed(prev_system_conv['context']):
+                            if context[2] in coref_ent and context[4] == 'B':
+                                coref.append('1')
+                                coref_ent.remove(context[2])
+                            else:
+                                coref.append('0')
                         coref.append('0')
-                    coref.extend(['1' if context[2] in coref_ent else '0' for context in user['context']])
+                        for context in reversed(prev_user_conv['context']):
+                            if context[2] in coref_ent and context[4] == 'B':
+                                coref.append('1')
+                                coref_ent.remove(context[2])
+                            else:
+                                coref.append('0')
 
                     # get gold actions
                     gold_actions = system['gold_actions']
@@ -151,24 +182,36 @@ class CSQADataset(object):
                 for action in gold_actions:
                     if action[0] == 'action':
                         logical_form.append(action[1])
+                        predicate_cls.append('NA')
+                        type_cls.append('NA')
                     elif action[0] == 'relation':
                         logical_form.append('relation')
+                        predicate_cls.append(action[1])
+                        type_cls.append('NA')
                     elif action[0] == 'type':
                         logical_form.append('type')
+                        predicate_cls.append('NA')
+                        type_cls.append(action[1])
                     elif action[0] == 'entity':
                         if action[1] == 'prev_answer':
                             logical_form.append('prev_answer')
                         else:
                             logical_form.append('entity')
+                        predicate_cls.append('NA')
+                        type_cls.append('NA')
                     elif action[0] == 'value':
                         logical_form.append(action[0])
+                        predicate_cls.append('NA')
+                        type_cls.append('NA')
                     else:
                         raise Exception(f'Unkown logical form {action[0]}')
 
                 assert len(input) == len(ner_tag)
                 assert len(input) == len(coref)
+                assert len(logical_form) == len(predicate_cls)
+                assert len(logical_form) == len(type_cls)
 
-                input_data.append([input, logical_form, ner_tag, coref])
+                input_data.append([input, logical_form, ner_tag, list(reversed(coref)), predicate_cls, type_cls])
 
         return input_data
 
@@ -218,11 +261,10 @@ class CSQADataset(object):
                                 lower=True,
                                 batch_first=True)
 
-        self.ner_field = Field(init_token='o',
-                                eos_token='o',
-                                pad_token='o',
-                                unk_token='o',
-                                lower=True,
+        self.ner_field = Field(init_token='O',
+                                eos_token='O',
+                                pad_token='O',
+                                unk_token='O',
                                 batch_first=True)
 
         self.coref_field = Field(init_token='0',
@@ -231,8 +273,21 @@ class CSQADataset(object):
                                 unk_token='0',
                                 batch_first=True)
 
+        self.predicate_field = Field(init_token='NA',
+                                eos_token='NA',
+                                pad_token='NA',
+                                unk_token='NA',
+                                batch_first=True)
+
+        self.type_field = Field(init_token='NA',
+                                eos_token='NA',
+                                pad_token='NA',
+                                unk_token='NA',
+                                batch_first=True)
+
         fields_tuple = [(INPUT, self.input_field), (LOGICAL_FORM, self.lf_field),
-                        (NER, self.ner_field), (COREF, self.coref_field)]
+                        (NER, self.ner_field), (COREF, self.coref_field),
+                        (PREDICATE, self.predicate_field), (TYPE, self.type_field)]
 
         # create toechtext datasets
         self.train_data = self._make_torchtext_dataset(train, fields_tuple)
@@ -244,6 +299,8 @@ class CSQADataset(object):
         self.lf_field.build_vocab(self.train_data, min_freq=0)
         self.ner_field.build_vocab(self.train_data, min_freq=0)
         self.coref_field.build_vocab(self.train_data, min_freq=0)
+        self.predicate_field.build_vocab(self.train_data, self.val_data, self.test_data, min_freq=0)
+        self.type_field.build_vocab(self.train_data, self.val_data, self.test_data, min_freq=0)
 
     def get_data(self):
         """Return train, validation and test data objects"""
@@ -255,7 +312,9 @@ class CSQADataset(object):
             INPUT: self.input_field,
             LOGICAL_FORM: self.lf_field,
             NER: self.ner_field,
-            COREF: self.coref_field
+            COREF: self.coref_field,
+            PREDICATE: self.predicate_field,
+            TYPE: self.type_field
         }
 
     def get_vocabs(self):
@@ -264,5 +323,7 @@ class CSQADataset(object):
             INPUT: self.input_field.vocab,
             LOGICAL_FORM: self.lf_field.vocab,
             NER: self.ner_field.vocab,
-            COREF: self.coref_field.vocab
+            COREF: self.coref_field.vocab,
+            PREDICATE: self.predicate_field.vocab,
+            TYPE: self.type_field.vocab
         }

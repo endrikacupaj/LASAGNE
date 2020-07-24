@@ -1,5 +1,6 @@
 from __future__ import division
 import os
+import re
 import json
 import h5py
 import random
@@ -30,6 +31,8 @@ INPUT = 'input'
 LOGICAL_FORM = 'logical_form'
 NER = 'ner'
 COREF = 'coref'
+PREDICATE = 'predicate'
+TYPE = 'type'
 
 # helper tokens
 START_TOKEN = '[START]'
@@ -95,6 +98,8 @@ class Predictor(object):
         self.lf_vocab = vocabs[LOGICAL_FORM]
         self.ner_vocab = vocabs[NER]
         self.coref_vocab = vocabs[COREF]
+        self.predicate_vocab = vocabs[PREDICATE]
+        self.type_vocab = vocabs[TYPE]
         self.device = device
 
     def predict(self, example):
@@ -110,20 +115,33 @@ class Predictor(object):
         output['ner'] = output['ner'].argmax(1).tolist()
         output['coref'] = output['coref'].argmax(1).tolist()
 
-        # get logical form prediction from decoder
+        # get logical form, predicate and type prediction
         lf_out = [self.lf_vocab.stoi[START_TOKEN]]
+        predicate_out = [self.lf_vocab.stoi[START_TOKEN]]
+        type_out = [self.lf_vocab.stoi[START_TOKEN]]
+
         for _ in range(self.model.decoder.max_positions):
             lf_tensor = torch.LongTensor(lf_out).unsqueeze(0).to(self.device)
-            dec_out = self.model._predict_lf(src_tensor, lf_tensor, output['encoder_out'])
+
+            dec_out, predic_out, typ_out = self.model._predict_other(src_tensor, lf_tensor, output['encoder_out'])
+
             pred_lf = dec_out.argmax(1)[-1].item()
+            pred_predicate = predic_out.argmax(1)[-1].item()
+            pred_type = typ_out.argmax(1)[-1].item()
+
             if pred_lf == self.lf_vocab.stoi[END_TOKEN]:
                 break
+
             lf_out.append(pred_lf)
+            predicate_out.append(pred_predicate)
+            type_out.append(pred_type)
 
         # translate top predictions into vocab tokens
         output['ner'] = [self.ner_vocab.itos[i] for i in output['ner']][1:-1]
         output['coref'] = [self.coref_vocab.itos[i] for i in output['coref']][1:-1]
         output['logical_form'] = [self.lf_vocab.itos[i] for i in lf_out][1:]
+        output['predicate'] = [self.predicate_vocab.itos[i] for i in predicate_out][1:]
+        output['type'] = [self.type_vocab.itos[i] for i in type_out][1:]
 
         # delete decoder output
         del output['encoder_out']
@@ -135,6 +153,7 @@ class AccuracyScorer(object):
     def __init__(self):
         self.results = []
         self.instances = 0
+        self.data_dict = []
 
     def data_score(self, data, predictor):
         """Score complete list of data"""
@@ -143,9 +162,11 @@ class AccuracyScorer(object):
             self.instances += 1
 
             # prepare references
-            ref_ner = [t.lower() for t in example.ner]
-            ref_coref = [t.lower() for t in example.coref]
+            ref_ner = example.ner
+            ref_coref = example.coref
             ref_lf = [t.lower() for t in example.logical_form]
+            ref_pred = example.predicate
+            ref_type = example.type
 
             # get model hypothesis
             hypothesis = predictor.predict(example)
@@ -154,13 +175,46 @@ class AccuracyScorer(object):
             correct_ner = 1 if ref_ner == hypothesis['ner'] else 0
             correct_coref = 1 if ref_coref == hypothesis['coref'] else 0
             correct_lf = 1 if ref_lf == hypothesis['logical_form'] else 0
+            correct_pred = 1 if ref_pred == hypothesis['predicate'] else 0
+            correct_type = 1 if ref_type == hypothesis['type'] else 0
 
             # save results
             self.results.append({
                 'ner': correct_ner,
                 'coref': correct_coref,
-                'logical_form': correct_lf
+                'logical_form': correct_lf,
+                'predicate': correct_pred,
+                'type': correct_type
             })
+
+            # save data
+            self.data_dict.append({
+                'input': example.input,
+                'ner': hypothesis['ner'],
+                'ner_gold': example.ner,
+                'coref': hypothesis['coref'],
+                'coref_gold': example.coref,
+                'logical_form': hypothesis['logical_form'],
+                'logical_form_gold': example.logical_form,
+                'predicate': hypothesis['predicate'],
+                'predicate_gold': example.predicate,
+                'type': hypothesis['type'],
+                'type_gold': example.type,
+                # ------------------------------------
+                'ner_correct': correct_ner,
+                'coref_correct': correct_coref,
+                'logical_form_correct': correct_lf,
+                'predicate_correct': correct_pred,
+                'type_correct': correct_type,
+            })
+
+    def write_results(self):
+        save_dict = json.dumps(self.data_dict, indent=4)
+        save_dict_no_space_1 = re.sub(r'": \[\s+', '": [', save_dict)
+        save_dict_no_space_2 = re.sub(r'",\s+', '", ', save_dict_no_space_1)
+        save_dict_no_space_3 = re.sub(r'"\s+\]', '"]', save_dict_no_space_2)
+        with open(f'{ROOT_PATH}/{args.path_error_analysis}/error_analysis.json', 'w', encoding='utf-8') as json_file:
+            json_file.write(save_dict_no_space_3)
 
     def ner_accuracy(self):
         """Return accuracy for NER"""
@@ -173,6 +227,14 @@ class AccuracyScorer(object):
     def lf_accuracy(self):
         """Return accuracy for Logical Form"""
         return float(sum([res['logical_form'] for res in self.results])) / float(self.instances)
+
+    def predicate_accuracy(self):
+        """Return accuracy for Predicate"""
+        return float(sum([res['predicate'] for res in self.results])) / float(self.instances)
+
+    def type_accuracy(self):
+        """Return accuracy for Type"""
+        return float(sum([res['type'] for res in self.results])) / float(self.instances)
 
     def total_accuracy(self):
         """Return accuracy for all tasks combined"""
@@ -203,7 +265,7 @@ class NerLoss(nn.Module):
         return self.criterion(output, target)
 
 class CorefLoss(nn.Module):
-    '''COREF Loss'''
+    '''Coref Loss'''
     def __init__(self, ignore_index):
         super().__init__()
         self.criterion = nn.CrossEntropyLoss()
@@ -220,6 +282,24 @@ class LogicalFormLoss(nn.Module):
     def forward(self, output, target):
         return self.criterion(output, target)
 
+class PredicateLoss(nn.Module):
+    '''Predicate Loss'''
+    def __init__(self, ignore_index):
+        super().__init__()
+        self.criterion = nn.CrossEntropyLoss()
+
+    def forward(self, output, target):
+        return self.criterion(output, target)
+
+class TypeLoss(nn.Module):
+    '''Type Loss'''
+    def __init__(self, ignore_index):
+        super().__init__()
+        self.criterion = nn.CrossEntropyLoss()
+
+    def forward(self, output, target):
+        return self.criterion(output, target)
+
 class MultiTaskLoss(nn.Module):
     '''Multi Task Learning Loss'''
     def __init__(self, ignore_index):
@@ -227,23 +307,34 @@ class MultiTaskLoss(nn.Module):
         self.ner_loss = NerLoss(ignore_index)
         self.coref_loss = CorefLoss(ignore_index)
         self.lf_loss = LogicalFormLoss(ignore_index)
+        self.predicate_loss = PredicateLoss(ignore_index)
+        self.type_loss = TypeLoss(ignore_index)
 
-        self.mml_emp = torch.Tensor([True, True, True])
+        self.mml_emp = torch.Tensor([True, True, True, True, True])
         self.log_vars = torch.nn.Parameter(torch.zeros(len(self.mml_emp)))
 
     def forward(self, output, target):
-        task_losses = torch.stack((self.ner_loss(output['ner'], target['ner']), self.coref_loss(output['coref'], target['coref']), self.lf_loss(output['logical_form'], target['logical_form'])))
-        dtype = task_losses.dtype
-
         # weighted loss
+        task_losses = torch.stack((
+            self.ner_loss(output['ner'], target['ner']),
+            self.coref_loss(output['coref'], target['coref']),
+            self.lf_loss(output['logical_form'], target['logical_form']),
+            self.predicate_loss(output['predicate'], target['predicate']),
+            self.type_loss(output['type'], target['type'])
+        ))
+
+        dtype = task_losses.dtype
         stds = (torch.exp(self.log_vars)**(1/2)).to(DEVICE).to(dtype)
         weights = 1 / ((self.mml_emp.to(DEVICE).to(dtype)+1)*(stds**2))
+
         losses = weights * task_losses + torch.log(stds)
 
         return {
             'ner': losses[0],
             'coref': losses[1],
             'logical_form': losses[2],
+            'predicate': losses[3],
+            'type': losses[4],
             'multi_task': losses.mean()
         }[args.task]
 

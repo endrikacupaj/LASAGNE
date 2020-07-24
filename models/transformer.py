@@ -88,16 +88,16 @@ class Decoder(nn.Module):
 
         x = self.embed_tokens(trg_tokens) * self.scale
         x += self.embed_positions(trg_tokens)
-        x = F.dropout(x, p=self.dropout, training=self.training)
+        h = F.dropout(x, p=self.dropout, training=self.training)
 
         for layer in self.layers:
-            x = layer(x, encoder_out, trg_mask, src_mask)
+            h = layer(h, encoder_out, trg_mask, src_mask)
 
-        x = x.contiguous().view(-1, x.shape[-1])
+        x = h.contiguous().view(-1, h.shape[-1])
         x = self.linear_out(x)
         x = F.log_softmax(x, dim=1)
 
-        return x
+        return x, h
 
 class DecoderLayer(nn.Module):
     def __init__(self, embed_dim, heads, pf_dim, dropout, device):

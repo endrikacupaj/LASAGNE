@@ -13,7 +13,7 @@ from models.model import ConvQA
 from csqa_dataset import CSQADataset
 from torchtext.data import BucketIterator
 from utils import NoamOpt, AverageMeter, save_checkpoint, init_weights
-from utils import (INPUT, LOGICAL_FORM, NER, COREF, PAD_TOKEN)
+from utils import (INPUT, LOGICAL_FORM, NER, COREF, PAD_TOKEN, PREDICATE, TYPE)
 from utils import NerLoss, CorefLoss, LogicalFormLoss, MultiTaskLoss
 
 # set root path
@@ -64,6 +64,8 @@ def main():
         'ner': NerLoss,
         'coref': CorefLoss,
         'logical_form': LogicalFormLoss,
+        'predicate': LogicalFormLoss,
+        'type': LogicalFormLoss,
         'multi_task': MultiTaskLoss
     }[args.task](ignore_index=vocabs[LOGICAL_FORM].stoi[PAD_TOKEN])
 
@@ -101,6 +103,8 @@ def main():
     logger.info(f"Unique tokens in logical form vocabulary: {len(vocabs[LOGICAL_FORM])}")
     logger.info(f"Unique tokens in ner vocabulary: {len(vocabs[NER])}")
     logger.info(f"Unique tokens in coref vocabulary: {len(vocabs[COREF])}")
+    logger.info(f"Unique tokens in predicate vocabulary: {len(vocabs[PREDICATE])}")
+    logger.info(f"Unique tokens in type vocabulary: {len(vocabs[TYPE])}")
     logger.info(f'Batch: {args.batch_size}')
     logger.info(f'Epochs: {args.epochs}')
 
@@ -136,6 +140,8 @@ def train(train_loader, model, vocabs, criterion, optimizer, epoch):
         logical_form = batch.logical_form
         ner = batch.ner
         coref = batch.coref
+        predicate_cls = batch.predicate
+        type_cls = batch.type
 
         # compute output
         output = model(input, logical_form[:, :-1])
@@ -144,7 +150,9 @@ def train(train_loader, model, vocabs, criterion, optimizer, epoch):
         target = {
             'ner': ner.contiguous().view(-1),
             'coref': coref.contiguous().view(-1),
-            'logical_form': logical_form[:, 1:].contiguous().view(-1) # (batch_size * trg_len)
+            'logical_form': logical_form[:, 1:].contiguous().view(-1), # (batch_size * trg_len)
+            'predicate': predicate_cls[:, 1:].contiguous().view(-1),
+            'type': type_cls[:, 1:].contiguous().view(-1),
         }
 
         # compute loss
@@ -178,6 +186,8 @@ def validate(val_loader, model, vocabs, criterion):
             logical_form = batch.logical_form
             ner = batch.ner
             coref = batch.coref
+            predicate_cls = batch.predicate
+            type_cls = batch.type
 
             # compute output
             output = model(input, logical_form[:, :-1])
@@ -186,7 +196,9 @@ def validate(val_loader, model, vocabs, criterion):
             target = {
                 'ner': ner.contiguous().view(-1),
                 'coref': coref.contiguous().view(-1),
-                'logical_form': logical_form[:, 1:].contiguous().view(-1) # (batch_size * trg_len)
+                'logical_form': logical_form[:, 1:].contiguous().view(-1), # (batch_size * trg_len)
+                'predicate': predicate_cls[:, 1:].contiguous().view(-1),
+                'type': type_cls[:, 1:].contiguous().view(-1),
             }
 
             # compute loss

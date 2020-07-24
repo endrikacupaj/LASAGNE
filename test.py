@@ -93,22 +93,28 @@ def main():
     test_scorer = AccuracyScorer()
     val_scorer.data_score(val_data.examples, predictor)
     test_scorer.data_score(test_data.examples, predictor)
+    test_scorer.write_results()
 
     # log results
     logger.info(f'* Val Data Results:')
     logger.info(f'\t NER: {val_scorer.ner_accuracy():.4f}')
     logger.info(f'\t Coref: {val_scorer.coref_accuracy():.4f}')
     logger.info(f'\t Logical Form: {val_scorer.lf_accuracy():.4f}')
+    logger.info(f'\t Predicate: {val_scorer.predicate_accuracy():.4f}')
+    logger.info(f'\t Type: {val_scorer.type_accuracy():.4f}')
     logger.info(f'\t Total Accuracy: {val_scorer.total_accuracy():.4f}')
 
     logger.info(f'* Test Data Results:')
     logger.info(f'\t NER: {test_scorer.ner_accuracy():.4f}')
     logger.info(f'\t Coref: {test_scorer.coref_accuracy():.4f}')
     logger.info(f'\t Logical Form: {test_scorer.lf_accuracy():.4f}')
+    logger.info(f'\t Predicate: {val_scorer.predicate_accuracy():.4f}')
+    logger.info(f'\t Type: {val_scorer.type_accuracy():.4f}')
     logger.info(f'\t Total Accuracy: {test_scorer.total_accuracy():.4f}')
 
 def test(loader, model, vocabs, criterion):
     losses = AverageMeter()
+    accuracy = 0
 
     model.eval()
 
@@ -119,6 +125,8 @@ def test(loader, model, vocabs, criterion):
             logical_form = batch.logical_form
             ner = batch.ner
             coref = batch.coref
+            predicate_cls = batch.predicate
+            type_cls = batch.type
 
             # compute output
             output = model(input, logical_form[:, :-1])
@@ -127,7 +135,9 @@ def test(loader, model, vocabs, criterion):
             target = {
                 'ner': ner.contiguous().view(-1),
                 'coref': coref.contiguous().view(-1),
-                'logical_form': logical_form[:, 1:].contiguous().view(-1) # (batch_size * trg_len)
+                'logical_form': logical_form[:, 1:].contiguous().view(-1), # (batch_size * trg_len)
+                'predicate': predicate_cls[:, 1:].contiguous().view(-1),
+                'type': type_cls[:, 1:].contiguous().view(-1),
             }
 
             # compute loss
