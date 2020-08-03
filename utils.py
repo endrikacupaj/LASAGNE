@@ -1,15 +1,20 @@
 from __future__ import division
 import os
 import re
+import time
 import json
 import h5py
+import torch
 import random
 import logging
-import torch
-import torch.nn as nn
 import numpy as np
+import torch.nn as nn
 from pathlib import Path
 from args import get_parser
+from unidecode import unidecode
+from collections import OrderedDict
+from transformers import BertTokenizer
+from elasticsearch import Elasticsearch
 from more_itertools import unique_everseen
 from torchtext.data import Field, Example, Dataset
 
@@ -33,6 +38,7 @@ NER = 'ner'
 COREF = 'coref'
 PREDICATE = 'predicate'
 TYPE = 'type'
+COREF_RANKING = 'coref_ranking'
 
 # helper tokens
 START_TOKEN = '[START]'
@@ -44,7 +50,7 @@ SEP_TOKEN = '[SEP]'
 
 class NoamOpt:
     "Optim wrapper that implements rate."
-    def __init__(self, optimizer, model_size=args.embDim, factor=1, warmup=4000):
+    def __init__(self, optimizer, model_size=args.embDim, factor=args.factor, warmup=args.warmup):
         self.optimizer = optimizer
         self._step = 0
         self.warmup = warmup
@@ -98,115 +104,332 @@ class Predictor(object):
         self.lf_vocab = vocabs[LOGICAL_FORM]
         self.ner_vocab = vocabs[NER]
         self.coref_vocab = vocabs[COREF]
+        self.coref_ranking_vocab = vocabs[COREF_RANKING]
         self.predicate_vocab = vocabs[PREDICATE]
         self.type_vocab = vocabs[TYPE]
         self.device = device
 
-    def predict(self, example):
+    def predict(self, input):
         """Perform prediction on given input example"""
         self.model.eval()
+        model_out = {}
         # prepare input
-        tokenized_sentence = [START_TOKEN] + [t.lower() for t in example.input] + [CTX_TOKEN]
-        numericalized = [self.input_vocab.stoi[token] for token in tokenized_sentence]
+        tokenized_sentence = [START_TOKEN] + [t.lower() for t in input] + [CTX_TOKEN]
+        numericalized = [self.input_vocab.stoi[token] if token in self.input_vocab.stoi else self.input_vocab.stoi[UNK_TOKEN] for token in tokenized_sentence]
         src_tensor = torch.LongTensor(numericalized).unsqueeze(0).to(self.device)
 
         # get ner, coref predictions
-        output = self.model._predict(src_tensor)
-        output['ner'] = output['ner'].argmax(1).tolist()
-        output['coref'] = output['coref'].argmax(1).tolist()
+        encoder_step = self.model._predict_encoder(src_tensor)
+        ner_out = encoder_step[NER].argmax(1).tolist()
+        coref_out = encoder_step[COREF].argmax(1).tolist()
 
         # get logical form, predicate and type prediction
         lf_out = [self.lf_vocab.stoi[START_TOKEN]]
+        coref_ranking_out = [self.lf_vocab.stoi[START_TOKEN]]
         predicate_out = [self.lf_vocab.stoi[START_TOKEN]]
         type_out = [self.lf_vocab.stoi[START_TOKEN]]
 
         for _ in range(self.model.decoder.max_positions):
             lf_tensor = torch.LongTensor(lf_out).unsqueeze(0).to(self.device)
 
-            dec_out, predic_out, typ_out = self.model._predict_other(src_tensor, lf_tensor, output['encoder_out'])
+            decoder_step = self.model._predict_decoder(src_tensor, lf_tensor, encoder_step['encoder_out'])
 
-            pred_lf = dec_out.argmax(1)[-1].item()
-            pred_predicate = predic_out.argmax(1)[-1].item()
-            pred_type = typ_out.argmax(1)[-1].item()
+            pred_lf = decoder_step['decoder_out'].argmax(1)[-1].item()
+            pred_coref_ranking = decoder_step[COREF_RANKING].argmax(1)[-1].item()
+            pred_predicate = decoder_step[PREDICATE].argmax(1)[-1].item()
+            pred_type = decoder_step[TYPE].argmax(1)[-1].item()
 
             if pred_lf == self.lf_vocab.stoi[END_TOKEN]:
                 break
 
             lf_out.append(pred_lf)
+            coref_ranking_out.append(pred_coref_ranking)
             predicate_out.append(pred_predicate)
             type_out.append(pred_type)
 
         # translate top predictions into vocab tokens
-        output['ner'] = [self.ner_vocab.itos[i] for i in output['ner']][1:-1]
-        output['coref'] = [self.coref_vocab.itos[i] for i in output['coref']][1:-1]
-        output['logical_form'] = [self.lf_vocab.itos[i] for i in lf_out][1:]
-        output['predicate'] = [self.predicate_vocab.itos[i] for i in predicate_out][1:]
-        output['type'] = [self.type_vocab.itos[i] for i in type_out][1:]
+        model_out[NER] = [self.ner_vocab.itos[i] for i in ner_out][1:-1]
+        model_out[COREF] = [self.coref_vocab.itos[i] for i in coref_out][1:-1]
+        model_out[COREF_RANKING] = [self.coref_ranking_vocab.itos[i] for i in coref_ranking_out][1:]
+        model_out[LOGICAL_FORM] = [self.lf_vocab.itos[i] for i in lf_out][1:]
+        model_out[PREDICATE] = [self.predicate_vocab.itos[i] for i in predicate_out][1:]
+        model_out[TYPE] = [self.type_vocab.itos[i] for i in type_out][1:]
 
-        # delete decoder output
-        del output['encoder_out']
+        return model_out
 
-        return output
-
-class AccuracyScorer(object):
-    """Accuracy scorer class"""
+class AccuracyMeter(object):
     def __init__(self):
-        self.results = []
-        self.instances = 0
+        self.reset()
+
+    def reset(self):
+        self.correct = 0
+        self.wrong = 0
+        self.accuracy = 0
+
+    def update(self, gold, result):
+        if gold == result:
+            self.correct += 1
+        else:
+            self.wrong += 1
+
+        self.accuracy = self.correct / (self.correct + self.wrong)
+
+class Scorer(object):
+    """Scorer class"""
+    def __init__(self):
+        self.tasks = ['total', NER, COREF, COREF_RANKING, LOGICAL_FORM, PREDICATE, TYPE]
+        self.results = {
+            'Overall': {task:AccuracyMeter() for task in self.tasks},
+            'Clarification': {task:AccuracyMeter() for task in self.tasks},
+            'Comparative Reasoning (All)': {task:AccuracyMeter() for task in self.tasks},
+            'Logical Reasoning (All)': {task:AccuracyMeter() for task in self.tasks},
+            'Quantitative Reasoning (All)': {task:AccuracyMeter() for task in self.tasks},
+            'Simple Question (Coreferenced)': {task:AccuracyMeter() for task in self.tasks},
+            'Simple Question (Direct)': {task:AccuracyMeter() for task in self.tasks},
+            'Simple Question (Ellipsis)': {task:AccuracyMeter() for task in self.tasks},
+            # -------------------------------------------
+            'Verification (Boolean) (All)': {task:AccuracyMeter() for task in self.tasks},
+            'Quantitative Reasoning (Count) (All)': {task:AccuracyMeter() for task in self.tasks},
+            'Comparative Reasoning (Count) (All)': {task:AccuracyMeter() for task in self.tasks},
+        }
         self.data_dict = []
+        self.inference_actions = []
 
-    def data_score(self, data, predictor):
+    def data_score(self, data, helper, predictor):
         """Score complete list of data"""
-        for example in data:
-            # count example
-            self.instances += 1
-
+        for example, q_type  in zip(data, helper['question_type']):
             # prepare references
             ref_ner = example.ner
             ref_coref = example.coref
             ref_lf = [t.lower() for t in example.logical_form]
             ref_pred = example.predicate
             ref_type = example.type
+            ref_coref_ranking = example.coref_ranking
 
             # get model hypothesis
-            hypothesis = predictor.predict(example)
+            hypothesis = predictor.predict(example.input)
 
             # check correctness
-            correct_ner = 1 if ref_ner == hypothesis['ner'] else 0
-            correct_coref = 1 if ref_coref == hypothesis['coref'] else 0
-            correct_lf = 1 if ref_lf == hypothesis['logical_form'] else 0
-            correct_pred = 1 if ref_pred == hypothesis['predicate'] else 0
-            correct_type = 1 if ref_type == hypothesis['type'] else 0
+            correct_ner = 1 if ref_ner == hypothesis[NER] else 0
+            correct_coref = 1 if ref_coref == hypothesis[COREF] else 0
+            correct_coref_ranking = 1 if ref_coref_ranking == hypothesis[COREF_RANKING] else 0
+            correct_lf = 1 if ref_lf == hypothesis[LOGICAL_FORM] else 0
+            correct_pred = 1 if ref_pred == hypothesis[PREDICATE] else 0
+            correct_type = 1 if ref_type == hypothesis[TYPE] else 0
 
             # save results
-            self.results.append({
-                'ner': correct_ner,
-                'coref': correct_coref,
-                'logical_form': correct_lf,
-                'predicate': correct_pred,
-                'type': correct_type
-            })
+            gold = 1
+            res = 1 if correct_ner and correct_coref and correct_coref_ranking and correct_lf and correct_pred and correct_type else 0
+            # Question type
+            self.results[q_type]['total'].update(gold, res)
+            self.results[q_type][NER].update(ref_ner, hypothesis[NER])
+            self.results[q_type][COREF].update(ref_coref, hypothesis[COREF])
+            self.results[q_type][COREF_RANKING].update(ref_coref_ranking, hypothesis[COREF_RANKING])
+            self.results[q_type][LOGICAL_FORM].update(ref_lf, hypothesis[LOGICAL_FORM])
+            self.results[q_type][PREDICATE].update(ref_pred, hypothesis[PREDICATE])
+            self.results[q_type][TYPE].update(ref_type, hypothesis[TYPE])
+            # Overall
+            self.results['Overall']['total'].update(gold, res)
+            self.results['Overall'][NER].update(ref_ner, hypothesis[NER])
+            self.results['Overall'][COREF].update(ref_coref, hypothesis[COREF])
+            self.results['Overall'][COREF_RANKING].update(ref_coref_ranking, hypothesis[COREF_RANKING])
+            self.results['Overall'][LOGICAL_FORM].update(ref_lf, hypothesis[LOGICAL_FORM])
+            self.results['Overall'][PREDICATE].update(ref_pred, hypothesis[PREDICATE])
+            self.results['Overall'][TYPE].update(ref_type, hypothesis[TYPE])
 
             # save data
             self.data_dict.append({
-                'input': example.input,
-                'ner': hypothesis['ner'],
-                'ner_gold': example.ner,
-                'coref': hypothesis['coref'],
-                'coref_gold': example.coref,
-                'logical_form': hypothesis['logical_form'],
-                'logical_form_gold': example.logical_form,
-                'predicate': hypothesis['predicate'],
-                'predicate_gold': example.predicate,
-                'type': hypothesis['type'],
-                'type_gold': example.type,
+                INPUT: example.input,
+                NER: hypothesis[NER],
+                f'{NER}_gold': example.ner,
+                COREF: hypothesis[COREF],
+                f'{COREF}_gold': example.coref,
+                COREF_RANKING: hypothesis[COREF_RANKING],
+                f'{COREF_RANKING}_gold': example.coref_ranking,
+                LOGICAL_FORM: hypothesis[LOGICAL_FORM],
+                f'{LOGICAL_FORM}_gold': example.logical_form,
+                PREDICATE: hypothesis[PREDICATE],
+                f'{PREDICATE}_gold': example.predicate,
+                TYPE: hypothesis[TYPE],
+                f'{TYPE}_gold': example.type,
                 # ------------------------------------
-                'ner_correct': correct_ner,
-                'coref_correct': correct_coref,
-                'logical_form_correct': correct_lf,
-                'predicate_correct': correct_pred,
-                'type_correct': correct_type,
+                f'{NER}_correct': correct_ner,
+                f'{COREF}_correct': correct_coref,
+                f'{COREF_RANKING}_correct': correct_coref_ranking,
+                f'{LOGICAL_FORM}_correct': correct_lf,
+                f'{PREDICATE}_correct': correct_pred,
+                f'{TYPE}_correct': correct_type,
+                'is_correct': res,
+                'question_type': q_type
             })
+
+    def construct_inference_actions(self, inference_data, predictor):
+        # prepare bert wordpiece tokenizer
+        tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+
+        tic = time.perf_counter()
+        # based on model outpus create a final logical form to execute
+        for i, sample in enumerate(inference_data):
+            predictions = predictor.predict(sample['context_question'])
+            actions = []
+            logical_form_prediction = predictions[LOGICAL_FORM]
+            for j, action in enumerate(logical_form_prediction):
+                if action not in ['entity', 'relation', 'type', 'value', 'prev_answer']:
+                    actions.append(['action', action])
+                elif action == 'entity':
+                    # get context entities
+                    context_entities = set(sample['context_entities'])
+                    # get predictions
+                    context_question = sample['context_question']
+                    ner_prediction = predictions[NER]
+                    coref_prediction = predictions[COREF]
+                    coref_ranking_prediction = predictions[COREF_RANKING]
+                    # get their indices
+                    ner_indices = [k for k, tag in enumerate(ner_prediction) if tag in ['B', 'I']]
+                    coref_indices = [k for k, tag in enumerate(coref_prediction) if tag in ['1']]
+                    coref_ranking_indices = {k:tag for k, tag in enumerate(coref_ranking_prediction) if tag not in ['0']}
+                    # create a ner dictionary with index as key and entity as value
+                    ner_idx_ent = self.create_ner_idx_ent_dict(ner_indices, tokenizer, context_question)
+                    coref_idx_ent = OrderedDict({'0': 'NA'})
+                    if not coref_indices:
+                        # TODO here things get hard, we will need to use all ner entites and see if it works
+                        print('No coref indices!')
+                    else:
+                        for l, cidx in enumerate(coref_indices):
+                            if cidx in ner_idx_ent:
+                                coref_idx_ent[str(l+1)] = ner_idx_ent[cidx]
+                            else:
+                                # TODO still not sure what we should do here
+                                # coref_idx_ent[str(l+1)] = ...
+                                print(f'Coref index {cidx} not in ner entities!')
+
+                    if not coref_ranking_indices:
+                        # TODO if no ranking available them use coref results, somehow
+                        print('No coref ranking indices!')
+                        actions.append(['entity', 'entity'])
+                    elif j not in coref_ranking_indices:
+                        # TODO if logical form entity index not in coref ranking them we need to do something else
+                        print('Entity index not in coref ranking indices!')
+                        actions.append(['entity', 'entity'])
+                    else:
+                        coref_rank = coref_ranking_indices[j]
+                        if coref_rank not in coref_idx_ent:
+                            # TODO again problem, we need to do something here also
+                            print('Coref rank result not in coref list!')
+                            actions.append(['entity', 'entity'])
+                        else:
+                            entity_candidates = coref_idx_ent[coref_rank]
+                            gold_entity = entity_candidates[0] if entity_candidates else None # context_entities.intersection(entity_candidates)
+                            if not entity_candidates:
+                                # TODO do something for here also
+                                print('No gold entity!')
+                                actions.append(['entity', 'entity'])
+                                # if entity_candidates: actions.append(['entity', entity_candidates[0]])
+                            else:
+                                actions.append(['entity', entity_candidates[0]]) # top entity as gold
+                            # elif len(gold_entity) > 1:
+                            #     print('More than 1 gold entities!')
+                            #     # TODO do something for here also
+                            #     actions.append(['entity', next(iter(gold_entity))])
+                            # else:
+                            #     # finally we got the entity
+                            #     actions.append(['entity', next(iter(gold_entity))])
+                elif action == 'relation':
+                    predicate_prediction = predictions[PREDICATE]
+                    if predicate_prediction[j].startswith('P'):
+                        actions.append(['relation', predicate_prediction[j]])
+                    else: # Predicate
+                        print(f'Predicate prediction not in correct position: {sample}')
+                elif action == 'type':
+                    type_prediction = predictions[TYPE]
+                    if type_prediction[j].startswith('Q'):
+                        actions.append(['type', type_prediction[j]])
+                    else: # Type
+                        print(f'Type prediction not in correct position: {sample}')
+                elif action == 'value':
+                    actions.append(['value', self.get_value(sample['question'])])
+                elif action == 'prev_answer':
+                    actions.append(['entity', 'prev_answer'])
+
+            self.inference_actions.append({
+                'question_type': sample['question_type'],
+                'question': sample['question'],
+                'answer': sample['answer'],
+                'actions': actions,
+                'results': sample['results'],
+                'prev_results': sample['prev_results'],
+            })
+
+            if (i+1) % 1000 == 0:
+                toc = time.perf_counter()
+                print(f'==> Finished action construction {((i+1)/len(inference_data))*100:.2f}% -- {toc - tic:0.2f}s')
+
+        self.write_inference_actions()
+
+    def create_ner_idx_ent_dict(self, ner_indices, tokenizer, context_question):
+        es = Elasticsearch([{'host': 'localhost', 'port': 9200}]) # connect to elastic search server
+        ent_idx = []
+        ner_idx_ent = {}
+        for index in ner_indices:
+            if not ent_idx or index-1 == ent_idx[-1]:
+                ent_idx.append(index)
+            else:
+                # get ent tokens from input context
+                ent_tokens = [context_question[idx] for idx in ent_idx]
+                # get string from tokens using tokenizer
+                ent_string = tokenizer.convert_tokens_to_string(ent_tokens).replace('##', '')
+                # get elastic search results
+                es_results = self.elasticsearch_query(es, ent_string)
+                # add idices to dict
+                if es_results:
+                    for idx in ent_idx:
+                        ner_idx_ent[idx] = es_results
+                # clean ent_idx
+                ent_idx = [index]
+        if ent_idx:
+            # get ent tokens from input context
+            ent_tokens = [context_question[idx] for idx in ent_idx]
+            # get string from tokens using tokenizer
+            ent_string = tokenizer.convert_tokens_to_string(ent_tokens).replace('##', '')
+            # get elastic search results
+            es_results = self.elasticsearch_query(es, ent_string)
+            # add idices to dict
+            if es_results:
+                for idx in ent_idx:
+                    ner_idx_ent[idx] = es_results
+        return ner_idx_ent
+
+    def elasticsearch_query(self, es, query):
+        res = es.search(index='csqa_wikidata', doc_type='entities', body={'query': {'match': {'label': {'query': unidecode(query), 'fuzziness': 'AUTO'}}}})
+        results = []
+        for hit in res['hits']['hits']: results.append(hit["_source"]["id"])
+        return results
+
+
+    def get_value(self, question):
+        if 'min' in question.split():
+            value = '0'
+        elif 'max' in question.split():
+            value = '0'
+        elif 'exactly' in question.split():
+            value = re.search(r'\d+', question.split('exactly')[1]).group()
+        elif 'approximately' in question.split():
+            value = re.search(r'\d+', question.split('approximately')[1]).group()
+        elif 'around' in question.split():
+            value = re.search(r'\d+', question.split('around')[1]).group()
+        elif 'atmost' in question.split():
+            value = re.search(r'\d+', question.split('atmost')[1]).group()
+        elif 'atleast' in question.split():
+            value = re.search(r'\d+', question.split('atleast')[1]).group()
+        else:
+            print(f'Could not eract value from question: {question}')
+            value = '0'
+
+        return value # int(value)
+
+    def write_inference_actions(self):
+        with open(f'{ROOT_PATH}/{args.path_inference}/inference_actions.json', 'w', encoding='utf-8') as json_file:
+            json_file.write(json.dumps(self.inference_actions, indent=4))
 
     def write_results(self):
         save_dict = json.dumps(self.data_dict, indent=4)
@@ -216,37 +439,13 @@ class AccuracyScorer(object):
         with open(f'{ROOT_PATH}/{args.path_error_analysis}/error_analysis.json', 'w', encoding='utf-8') as json_file:
             json_file.write(save_dict_no_space_3)
 
-    def ner_accuracy(self):
-        """Return accuracy for NER"""
-        return float(sum([res['ner'] for res in self.results])) / float(self.instances)
-
-    def coref_accuracy(self):
-        """Return accuracy for Coreference"""
-        return float(sum([res['coref'] for res in self.results])) / float(self.instances)
-
-    def lf_accuracy(self):
-        """Return accuracy for Logical Form"""
-        return float(sum([res['logical_form'] for res in self.results])) / float(self.instances)
-
-    def predicate_accuracy(self):
-        """Return accuracy for Predicate"""
-        return float(sum([res['predicate'] for res in self.results])) / float(self.instances)
-
-    def type_accuracy(self):
-        """Return accuracy for Type"""
-        return float(sum([res['type'] for res in self.results])) / float(self.instances)
-
-    def total_accuracy(self):
-        """Return accuracy for all tasks combined"""
-        return float(sum([1 if all([v == 1 for v in res.values()]) else 0 for res in self.results])) / float(self.instances)
-
     def reset(self):
         """Reset object properties"""
         self.results = []
         self.instances = 0
 
 def save_checkpoint(state):
-    filename = f'{ROOT_PATH}/{args.snapshots}/ConvQA_model_e{state["epoch"]}_v-{state["best_val"]:.2f}.pth.tar'
+    filename = f'{ROOT_PATH}/{args.snapshots}/ConvQA_model_e{state["epoch"]}_v-{state["best_val"]:.4f}.pth.tar'
     torch.save(state, filename)
 
 def init_weights(model):
@@ -255,8 +454,8 @@ def init_weights(model):
         if p.dim() > 1:
             nn.init.xavier_uniform_(p)
 
-class NerLoss(nn.Module):
-    '''NER Loss'''
+class PredicateType(nn.Module):
+    '''Single Task Loss'''
     def __init__(self, ignore_index):
         super().__init__()
         self.criterion = nn.CrossEntropyLoss()
@@ -264,38 +463,11 @@ class NerLoss(nn.Module):
     def forward(self, output, target):
         return self.criterion(output, target)
 
-class CorefLoss(nn.Module):
-    '''Coref Loss'''
-    def __init__(self, ignore_index):
-        super().__init__()
-        self.criterion = nn.CrossEntropyLoss()
-
-    def forward(self, output, target):
-        return self.criterion(output, target)
-
-class LogicalFormLoss(nn.Module):
-    '''Logical Form Loss'''
+class SingleTaskLoss(nn.Module):
+    '''Single Task Loss'''
     def __init__(self, ignore_index):
         super().__init__()
         self.criterion = nn.CrossEntropyLoss(ignore_index=ignore_index)
-
-    def forward(self, output, target):
-        return self.criterion(output, target)
-
-class PredicateLoss(nn.Module):
-    '''Predicate Loss'''
-    def __init__(self, ignore_index):
-        super().__init__()
-        self.criterion = nn.CrossEntropyLoss()
-
-    def forward(self, output, target):
-        return self.criterion(output, target)
-
-class TypeLoss(nn.Module):
-    '''Type Loss'''
-    def __init__(self, ignore_index):
-        super().__init__()
-        self.criterion = nn.CrossEntropyLoss()
 
     def forward(self, output, target):
         return self.criterion(output, target)
@@ -304,13 +476,14 @@ class MultiTaskLoss(nn.Module):
     '''Multi Task Learning Loss'''
     def __init__(self, ignore_index):
         super().__init__()
-        self.ner_loss = NerLoss(ignore_index)
-        self.coref_loss = CorefLoss(ignore_index)
-        self.lf_loss = LogicalFormLoss(ignore_index)
-        self.predicate_loss = PredicateLoss(ignore_index)
-        self.type_loss = TypeLoss(ignore_index)
+        self.ner_loss = SingleTaskLoss(ignore_index)
+        self.coref_loss = SingleTaskLoss(ignore_index)
+        self.coref_ranking_loss = SingleTaskLoss(ignore_index)
+        self.lf_loss = SingleTaskLoss(ignore_index)
+        self.predicate_loss = PredicateType(ignore_index)
+        self.type_loss = PredicateType(ignore_index)
 
-        self.mml_emp = torch.Tensor([True, True, True, True, True])
+        self.mml_emp = torch.Tensor([True, True, True, True, True, True])
         self.log_vars = torch.nn.Parameter(torch.zeros(len(self.mml_emp)))
 
     def forward(self, output, target):
@@ -320,7 +493,8 @@ class MultiTaskLoss(nn.Module):
             self.coref_loss(output['coref'], target['coref']),
             self.lf_loss(output['logical_form'], target['logical_form']),
             self.predicate_loss(output['predicate'], target['predicate']),
-            self.type_loss(output['type'], target['type'])
+            self.type_loss(output['type'], target['type']),
+            self.coref_ranking_loss(output['coref_ranking'], target['coref_ranking'])
         ))
 
         dtype = task_losses.dtype
@@ -335,6 +509,7 @@ class MultiTaskLoss(nn.Module):
             'logical_form': losses[2],
             'predicate': losses[3],
             'type': losses[4],
+            'coref_ranking': losses[5],
             'multi_task': losses.mean()
         }[args.task]
 
