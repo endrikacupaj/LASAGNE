@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from args import get_parser
 from models.transformer import Encoder, Decoder
-from utils import (INPUT, LOGICAL_FORM, NER, COREF, PREDICATE, TYPE)
+from utils import (INPUT, LOGICAL_FORM, NER, COREF, PREDICATE, TYPE, COREF_RANKING)
 
 # define device
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -19,6 +19,7 @@ class ConvQA(nn.Module):
         self.decoder = Decoder(vocabs[LOGICAL_FORM], DEVICE)
         self.ner = NerNet(len(vocabs[NER]))
         self.coref = SeqNet(len(vocabs[COREF]))
+        self.coref_ranking = SeqNet(len(vocabs[COREF_RANKING]))
         self.predicate_cls = SeqNet(len(vocabs[PREDICATE]))
         self.type_cls = SeqNet(len(vocabs[TYPE]))
 
@@ -28,18 +29,20 @@ class ConvQA(nn.Module):
         coref_out = self.coref(torch.cat([encoder_out, ner_h], dim=-1))
         decoder_out, decoder_h = self.decoder(src_tokens, trg_tokens, encoder_out)
         encoder_ctx = encoder_out[:, -1:, :].expand(decoder_h.shape)
+        coref_ranking_out = self.coref_ranking(torch.cat([encoder_ctx, decoder_h], dim=-1))
         predicate_out = self.predicate_cls(torch.cat([encoder_ctx, decoder_h], dim=-1))
         type_out = self.type_cls(torch.cat([encoder_ctx, decoder_h], dim=-1))
 
         return {
-            'ner': ner_out,
-            'coref': coref_out,
-            'logical_form': decoder_out,
-            'predicate': predicate_out,
-            'type': type_out
+            NER: ner_out,
+            COREF: coref_out,
+            COREF_RANKING: coref_ranking_out,
+            LOGICAL_FORM: decoder_out,
+            PREDICATE: predicate_out,
+            TYPE: type_out
         }
 
-    def _predict(self, src_tensor):
+    def _predict_encoder(self, src_tensor):
         with torch.no_grad():
             encoder_out = self.encoder(src_tensor)
             ner_out, ner_h = self.ner(encoder_out)
@@ -47,17 +50,24 @@ class ConvQA(nn.Module):
 
         return {
             'encoder_out': encoder_out,
-            'ner': ner_out,
-            'coref': coref_out
+            NER: ner_out,
+            COREF: coref_out
         }
 
-    def _predict_other(self, src_tokens, trg_tokens, encoder_out):
+    def _predict_decoder(self, src_tokens, trg_tokens, encoder_out):
         with torch.no_grad():
             decoder_out, decoder_h = self.decoder(src_tokens, trg_tokens, encoder_out)
             encoder_ctx = encoder_out[:, -1:, :].expand(decoder_h.shape)
+            coref_ranking_out = self.coref_ranking(torch.cat([encoder_ctx, decoder_h], dim=-1))
             predicate_out = self.predicate_cls(torch.cat([encoder_ctx, decoder_h], dim=-1))
             type_out = self.type_cls(torch.cat([encoder_ctx, decoder_h], dim=-1))
-            return decoder_out, predicate_out, type_out
+
+            return {
+                'decoder_out': decoder_out,
+                COREF_RANKING: coref_ranking_out,
+                PREDICATE: predicate_out,
+                TYPE: type_out
+            }
 
 class LstmFlatten(nn.Module):
     def forward(self, x):
@@ -80,7 +90,7 @@ class NerNet(nn.Module):
             Flatten(),
             nn.Dropout(dropout),
             nn.Linear(args.embDim, tags),
-            nn.LogSoftmax(dim=1)
+            # nn.LogSoftmax(dim=1)
         )
 
     def forward(self, x):
@@ -96,7 +106,7 @@ class SeqNet(nn.Module):
             Flatten(),
             nn.Dropout(dropout),
             nn.Linear(args.embDim, tags),
-            nn.LogSoftmax(dim=1)
+            # nn.LogSoftmax(dim=1)
         )
 
     def forward(self, x):
