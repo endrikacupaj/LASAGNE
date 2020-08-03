@@ -15,6 +15,7 @@ def get_parser():
     parser.add_argument('--snapshots', default='experiments/snapshots', type=str)
     parser.add_argument('--path_results', default='experiments/results', type=str)
     parser.add_argument('--path_error_analysis', default='experiments/error_analysis', type=str)
+    parser.add_argument('--path_inference', default='experiments/inference', type=str)
 
     # task
     parser.add_argument('--task', default='multi_task', choices=['multi_task', 'ner', 'coref', 'logical_form'], type=str)
@@ -30,6 +31,8 @@ def get_parser():
     # training
     parser.add_argument('--lr', default=0.0001, type=float)
     parser.add_argument('--momentum', default=0.9, type=float)
+    parser.add_argument('--warmup', default=4000, type=float)
+    parser.add_argument('--factor', default=1, type=float)
     parser.add_argument('--weight_decay', default=0, type=float)
     parser.add_argument('--epochs', default=10, type=int)
     parser.add_argument('--start_epoch', default=0, type=int)
