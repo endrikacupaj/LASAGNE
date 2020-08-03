@@ -193,7 +193,6 @@ class Scorer(object):
             'Comparative Reasoning (Count) (All)': {task:AccuracyMeter() for task in self.tasks},
         }
         self.data_dict = []
-        self.inference_actions = []
 
     def data_score(self, data, helper, predictor):
         """Score complete list of data"""
@@ -263,13 +262,31 @@ class Scorer(object):
                 'question_type': q_type
             })
 
-    def construct_inference_actions(self, inference_data, predictor):
-        # prepare bert wordpiece tokenizer
-        tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    def write_results(self):
+        save_dict = json.dumps(self.data_dict, indent=4)
+        save_dict_no_space_1 = re.sub(r'": \[\s+', '": [', save_dict)
+        save_dict_no_space_2 = re.sub(r'",\s+', '", ', save_dict_no_space_1)
+        save_dict_no_space_3 = re.sub(r'"\s+\]', '"]', save_dict_no_space_2)
+        with open(f'{ROOT_PATH}/{args.path_error_analysis}/error_analysis.json', 'w', encoding='utf-8') as json_file:
+            json_file.write(save_dict_no_space_3)
 
+    def reset(self):
+        """Reset object properties"""
+        self.results = []
+        self.instances = 0
+
+class Inference(object):
+    def __init__(self):
+        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        self.es = Elasticsearch([{'host': 'localhost', 'port': 9200}]) # connect to elastic search server
+        self.inference_actions = []
+
+    def construct_actions(self, inference_data, predictor):
         tic = time.perf_counter()
         # based on model outpus create a final logical form to execute
         for i, sample in enumerate(inference_data):
+            if sample['question_type'] != args.question_type:
+                continue
             predictions = predictor.predict(sample['context_question'])
             actions = []
             logical_form_prediction = predictions[LOGICAL_FORM]
@@ -289,7 +306,7 @@ class Scorer(object):
                     coref_indices = [k for k, tag in enumerate(coref_prediction) if tag in ['1']]
                     coref_ranking_indices = {k:tag for k, tag in enumerate(coref_ranking_prediction) if tag not in ['0']}
                     # create a ner dictionary with index as key and entity as value
-                    ner_idx_ent = self.create_ner_idx_ent_dict(ner_indices, tokenizer, context_question)
+                    ner_idx_ent = self.create_ner_idx_ent_dict(ner_indices, context_question)
                     coref_idx_ent = OrderedDict({'0': 'NA'})
                     if not coref_indices:
                         # TODO here things get hard, we will need to use all ner entites and see if it works
@@ -319,7 +336,7 @@ class Scorer(object):
                             actions.append(['entity', 'entity'])
                         else:
                             entity_candidates = coref_idx_ent[coref_rank]
-                            gold_entity = entity_candidates[0] if entity_candidates else None # context_entities.intersection(entity_candidates)
+                            # gold_entity = entity_candidates[0] if entity_candidates else None # context_entities.intersection(entity_candidates)
                             if not entity_candidates:
                                 # TODO do something for here also
                                 print('No gold entity!')
@@ -366,8 +383,7 @@ class Scorer(object):
 
         self.write_inference_actions()
 
-    def create_ner_idx_ent_dict(self, ner_indices, tokenizer, context_question):
-        es = Elasticsearch([{'host': 'localhost', 'port': 9200}]) # connect to elastic search server
+    def create_ner_idx_ent_dict(self, ner_indices, context_question):
         ent_idx = []
         ner_idx_ent = {}
         for index in ner_indices:
@@ -377,9 +393,9 @@ class Scorer(object):
                 # get ent tokens from input context
                 ent_tokens = [context_question[idx] for idx in ent_idx]
                 # get string from tokens using tokenizer
-                ent_string = tokenizer.convert_tokens_to_string(ent_tokens).replace('##', '')
+                ent_string = self.tokenizer.convert_tokens_to_string(ent_tokens).replace('##', '')
                 # get elastic search results
-                es_results = self.elasticsearch_query(es, ent_string)
+                es_results = self.elasticsearch_query(ent_string)
                 # add idices to dict
                 if es_results:
                     for idx in ent_idx:
@@ -390,21 +406,20 @@ class Scorer(object):
             # get ent tokens from input context
             ent_tokens = [context_question[idx] for idx in ent_idx]
             # get string from tokens using tokenizer
-            ent_string = tokenizer.convert_tokens_to_string(ent_tokens).replace('##', '')
+            ent_string = self.tokenizer.convert_tokens_to_string(ent_tokens).replace('##', '')
             # get elastic search results
-            es_results = self.elasticsearch_query(es, ent_string)
+            es_results = self.elasticsearch_query(ent_string)
             # add idices to dict
             if es_results:
                 for idx in ent_idx:
                     ner_idx_ent[idx] = es_results
         return ner_idx_ent
 
-    def elasticsearch_query(self, es, query):
-        res = es.search(index='csqa_wikidata', doc_type='entities', body={'query': {'match': {'label': {'query': unidecode(query), 'fuzziness': 'AUTO'}}}})
+    def elasticsearch_query(self, query):
+        res = self.es.search(index='csqa_wikidata', doc_type='entities', body={'query': {'match': {'label': {'query': unidecode(query), 'fuzziness': 'AUTO'}}}})
         results = []
         for hit in res['hits']['hits']: results.append(hit["_source"]["id"])
         return results
-
 
     def get_value(self, question):
         if 'min' in question.split():
@@ -425,24 +440,11 @@ class Scorer(object):
             print(f'Could not eract value from question: {question}')
             value = '0'
 
-        return value # int(value)
+        return value
 
     def write_inference_actions(self):
-        with open(f'{ROOT_PATH}/{args.path_inference}/inference_actions.json', 'w', encoding='utf-8') as json_file:
+        with open(f'{ROOT_PATH}/{args.path_inference}/{args.inference_partition}_{args.question_type}.json', 'w', encoding='utf-8') as json_file:
             json_file.write(json.dumps(self.inference_actions, indent=4))
-
-    def write_results(self):
-        save_dict = json.dumps(self.data_dict, indent=4)
-        save_dict_no_space_1 = re.sub(r'": \[\s+', '": [', save_dict)
-        save_dict_no_space_2 = re.sub(r'",\s+', '", ', save_dict_no_space_1)
-        save_dict_no_space_3 = re.sub(r'"\s+\]', '"]', save_dict_no_space_2)
-        with open(f'{ROOT_PATH}/{args.path_error_analysis}/error_analysis.json', 'w', encoding='utf-8') as json_file:
-            json_file.write(save_dict_no_space_3)
-
-    def reset(self):
-        """Reset object properties"""
-        self.results = []
-        self.instances = 0
 
 def save_checkpoint(state):
     filename = f'{ROOT_PATH}/{args.snapshots}/ConvQA_model_e{state["epoch"]}_v-{state["best_val"]:.4f}.pth.tar'

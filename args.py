@@ -9,7 +9,7 @@ def get_parser():
     parser.add_argument('--cuda_device', default=0, type=int)
 
     # data
-    parser.add_argument('--data_path', default='/data/final/csqa/sample')
+    parser.add_argument('--data_path', default='/data/final/csqa/sample3')
 
     # experiments
     parser.add_argument('--snapshots', default='experiments/snapshots', type=str)
@@ -41,7 +41,20 @@ def get_parser():
     parser.add_argument('--clip', default=5, type=int)
     parser.add_argument('--batch_size', default=100, type=int)
 
-    # test
-    parser.add_argument('--model_path', default='experiments/snapshots/', type=str)
+    # test and inference
+    parser.add_argument('--model_path', default='experiments/snapshots/ConvQA_model_e12_v-0.0057.pth.tar', type=str)
+    parser.add_argument('--inference_partition', default='test', choices=['val', 'test'], type=str)
+    # question type
+    parser.add_argument('--question_type', default='Simple Question (Direct)',
+        choices=['Clarification',
+                'Comparative Reasoning (All)',
+                'Logical Reasoning (All)',
+                'Quantitative Reasoning (All)',
+                'Simple Question (Coreferenced)',
+                'Simple Question (Direct)',
+                'Simple Question (Ellipsis)',
+                'Verification (Boolean) (All)',
+                'Quantitative Reasoning (Count) (All)',
+                'Comparative Reasoning (Count) (All)'], type=str)
 
     return parser

@@ -3,17 +3,11 @@ import time
 import random
 import logging
 import torch
-import numpy as np
-import torch.optim
-import torch.nn as nn
 from pathlib import Path
 from args import get_parser
 from models.model import ConvQA
 from csqa_dataset import CSQADataset
-from torchtext.data import BucketIterator
-from utils import AverageMeter, Scorer, Predictor
-from utils import (INPUT, LOGICAL_FORM, NER, COREF, PAD_TOKEN, COREF_RANKING, PREDICATE, TYPE)
-from utils import SingleTaskLoss, MultiTaskLoss
+from utils import Predictor, Inference
 
 # set root path
 ROOT_PATH = Path(os.path.dirname(__file__))
@@ -28,7 +22,7 @@ logging.basicConfig(format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s'
                     level=logging.INFO,
                     handlers=[
                         # logging.FileHandler(f'{args.path_results}/test.log', 'w'),
-                        logging.StreamHandler()
+                        # logging.StreamHandler()
                     ])
 logger = logging.getLogger(__name__)
 
@@ -49,7 +43,7 @@ def main():
     dataset = CSQADataset(args.data_path)
     vocabs = dataset.get_vocabs()
     _, val_data, test_data = dataset.get_data()
-    test_inference_data = dataset.get_inference_data()
+    inference_data = dataset.get_inference_data(args.inference_partition)
 
     # load model
     model = ConvQA(vocabs).to(DEVICE)
@@ -63,13 +57,14 @@ def main():
     model.load_state_dict(checkpoint['state_dict'])
     logger.info(f"=> loaded checkpoint '{args.model_path}' (epoch {checkpoint['epoch']})")
 
-    logger.info('Test data prepared.')
-    logger.info(f"Test data: {len(test_inference_data)}")
+    logger.info(f'Inference partition: {args.inference_partition}')
+    logger.info(f'Inference question type: {args.question_type}')
+    logger.info('Inference data prepared.')
+    logger.info(f"Num of inference data: {len(inference_data)}")
 
     # construct actions
     predictor = Predictor(model, vocabs, DEVICE)
-    test_scorer = Scorer()
-    test_scorer.construct_inference_actions(test_inference_data, predictor)
+    Inference().construct_actions(inference_data, predictor)
 
 if __name__ == '__main__':
     main()

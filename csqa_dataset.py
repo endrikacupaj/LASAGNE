@@ -809,17 +809,23 @@ class CSQADataset(object):
 
         return input_data, helper_data
 
-    def get_inference_data(self):
-        test = []
-        test_files = glob(self.test_path + '/*.json')
-        for f in test_files:
+    def get_inference_data(self, inference_partition):
+        if inference_partition == 'val':
+            files = glob(self.val_path + '/*.json')
+        elif inference_partition == 'test':
+            files = glob(self.test_path + '/*.json')
+        else:
+            raise ValueError(f'Unknown inference partion {inference_partition}')
+
+        partition = []
+        for f in files:
             with open(f) as json_file:
-                test.append(json.load(json_file))
+                partition.append(json.load(json_file))
 
         tokenizer = BertTokenizer.from_pretrained('bert-base-uncased').tokenize
         inference_data = []
 
-        for conversation in test:
+        for conversation in partition:
             is_clarification = False
             prev_user_conv = {}
             prev_system_conv = {}
