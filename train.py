@@ -13,8 +13,8 @@ from models.model import ConvQA
 from csqa_dataset import CSQADataset
 from torchtext.data import BucketIterator
 from utils import NoamOpt, AverageMeter, save_checkpoint, init_weights
-from utils import (INPUT, LOGICAL_FORM, NER, COREF, PAD_TOKEN, PREDICATE, TYPE)
-from utils import NerLoss, CorefLoss, LogicalFormLoss, MultiTaskLoss
+from utils import (INPUT, LOGICAL_FORM, NER, COREF, PAD_TOKEN, PREDICATE, TYPE, COREF_RANKING)
+from utils import SingleTaskLoss, MultiTaskLoss
 
 # set root path
 ROOT_PATH = Path(os.path.dirname(__file__))
@@ -61,11 +61,12 @@ def main():
 
     # define loss function (criterion)
     criterion = {
-        'ner': NerLoss,
-        'coref': CorefLoss,
-        'logical_form': LogicalFormLoss,
-        'predicate': LogicalFormLoss,
-        'type': LogicalFormLoss,
+        NER: SingleTaskLoss,
+        COREF: SingleTaskLoss,
+        COREF_RANKING: SingleTaskLoss,
+        LOGICAL_FORM: SingleTaskLoss,
+        PREDICATE: SingleTaskLoss,
+        TYPE: SingleTaskLoss,
         'multi_task': MultiTaskLoss
     }[args.task](ignore_index=vocabs[LOGICAL_FORM].stoi[PAD_TOKEN])
 
@@ -103,6 +104,7 @@ def main():
     logger.info(f"Unique tokens in logical form vocabulary: {len(vocabs[LOGICAL_FORM])}")
     logger.info(f"Unique tokens in ner vocabulary: {len(vocabs[NER])}")
     logger.info(f"Unique tokens in coref vocabulary: {len(vocabs[COREF])}")
+    logger.info(f"Unique tokens in coref ranking vocabulary: {len(vocabs[COREF_RANKING])}")
     logger.info(f"Unique tokens in predicate vocabulary: {len(vocabs[PREDICATE])}")
     logger.info(f"Unique tokens in type vocabulary: {len(vocabs[TYPE])}")
     logger.info(f'Batch: {args.batch_size}')
@@ -140,6 +142,7 @@ def train(train_loader, model, vocabs, criterion, optimizer, epoch):
         logical_form = batch.logical_form
         ner = batch.ner
         coref = batch.coref
+        coref_ranking = batch.coref_ranking
         predicate_cls = batch.predicate
         type_cls = batch.type
 
@@ -148,11 +151,12 @@ def train(train_loader, model, vocabs, criterion, optimizer, epoch):
 
         # prepare targets
         target = {
-            'ner': ner.contiguous().view(-1),
-            'coref': coref.contiguous().view(-1),
-            'logical_form': logical_form[:, 1:].contiguous().view(-1), # (batch_size * trg_len)
-            'predicate': predicate_cls[:, 1:].contiguous().view(-1),
-            'type': type_cls[:, 1:].contiguous().view(-1),
+            NER: ner.contiguous().view(-1),
+            COREF: coref.contiguous().view(-1),
+            COREF_RANKING: coref_ranking[:, 1:].contiguous().view(-1),
+            LOGICAL_FORM: logical_form[:, 1:].contiguous().view(-1), # (batch_size * trg_len)
+            PREDICATE: predicate_cls[:, 1:].contiguous().view(-1),
+            TYPE: type_cls[:, 1:].contiguous().view(-1)
         }
 
         # compute loss
@@ -186,6 +190,7 @@ def validate(val_loader, model, vocabs, criterion):
             logical_form = batch.logical_form
             ner = batch.ner
             coref = batch.coref
+            coref_ranking = batch.coref_ranking
             predicate_cls = batch.predicate
             type_cls = batch.type
 
@@ -194,11 +199,12 @@ def validate(val_loader, model, vocabs, criterion):
 
             # prepare targets
             target = {
-                'ner': ner.contiguous().view(-1),
-                'coref': coref.contiguous().view(-1),
-                'logical_form': logical_form[:, 1:].contiguous().view(-1), # (batch_size * trg_len)
-                'predicate': predicate_cls[:, 1:].contiguous().view(-1),
-                'type': type_cls[:, 1:].contiguous().view(-1),
+                NER: ner.contiguous().view(-1),
+                COREF: coref.contiguous().view(-1),
+                COREF_RANKING: coref_ranking[:, 1:].contiguous().view(-1),
+                LOGICAL_FORM: logical_form[:, 1:].contiguous().view(-1), # (batch_size * trg_len)
+                PREDICATE: predicate_cls[:, 1:].contiguous().view(-1),
+                TYPE: type_cls[:, 1:].contiguous().view(-1)
             }
 
             # compute loss
