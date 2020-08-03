@@ -95,7 +95,7 @@ class Decoder(nn.Module):
 
         x = h.contiguous().view(-1, h.shape[-1])
         x = self.linear_out(x)
-        x = F.log_softmax(x, dim=1)
+        # x = F.log_softmax(x, dim=1)
 
         return x, h
 
