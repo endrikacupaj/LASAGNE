@@ -3,6 +3,7 @@ import time
 import random
 import logging
 import torch
+import numpy as np
 from pathlib import Path
 from args import get_parser
 from models.model import ConvQA
@@ -21,8 +22,8 @@ logging.basicConfig(format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s'
                     datefmt='%d/%m/%Y %I:%M:%S %p',
                     level=logging.INFO,
                     handlers=[
-                        # logging.FileHandler(f'{args.path_results}/test.log', 'w'),
-                        # logging.StreamHandler()
+                        logging.FileHandler(f'{args.path_results}/test.log', 'w'),
+                        logging.StreamHandler()
                     ])
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,6 @@ def main():
     # load data
     dataset = CSQADataset(args.data_path)
     vocabs = dataset.get_vocabs()
-    _, val_data, test_data = dataset.get_data()
     inference_data = dataset.get_inference_data(args.inference_partition)
 
     # load model
