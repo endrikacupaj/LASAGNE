@@ -9,13 +9,13 @@ from glob import glob
 from pathlib import Path
 from transformers import BertTokenizer
 from torchtext.data import Field, Example, Dataset
-from utils import (INPUT, LOGICAL_FORM, NER, COREF, START_TOKEN, END_TOKEN,
+from const import (INPUT, LOGICAL_FORM, NER, COREF, START_TOKEN, END_TOKEN,
                     CTX_TOKEN, PAD_TOKEN, UNK_TOKEN, SEP_TOKEN, PREDICATE, TYPE)
 
 class CSQADataset(object):
     """CSQADataset class"""
     TOKENIZE_SEQ = lambda self, x: x.split()
-    ROOT_PATH = Path(os.path.dirname(__file__)).parent
+    ROOT_PATH = Path(os.path.dirname(__file__))
 
     def __init__(self, data_dir='/data/final'):
         self.train_path = str(self.ROOT_PATH) + data_dir + '/train/*'
@@ -55,7 +55,8 @@ class CSQADataset(object):
                 if i > 0 and prev_user_conv['question-type'] != 'Clarification':
                     if prev_user_conv['is_ner_spurious'] or prev_system_conv['is_ner_spurious'] or prev_system_conv['is_spurious']:
                         continue
-
+                
+                #TODO: Remove NA tokens.
                 if i == 0: # NA + [SEP] + NA + [SEP] + current_question
                     input.extend([  'NA', SEP_TOKEN, 'NA', SEP_TOKEN])
                     ner_tag.extend(['O',  'O',       'O',  'O'])

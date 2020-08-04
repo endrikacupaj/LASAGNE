@@ -2,23 +2,18 @@ from __future__ import division
 import os
 import re
 import json
-import h5py
 import random
 import logging
 import torch
 import torch.nn as nn
 import numpy as np
 from pathlib import Path
-from args import get_parser
+#from args import get_parser
 from more_itertools import unique_everseen
 from torchtext.data import Field, Example, Dataset
 
 # set root path
 ROOT_PATH = Path(os.path.dirname(__file__))
-
-# read parser
-parser = get_parser()
-args = parser.parse_args()
 
 # set logger
 logger = logging.getLogger(__name__)
@@ -26,25 +21,9 @@ logger = logging.getLogger(__name__)
 # define device
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# torchtext fields
-INPUT = 'input'
-LOGICAL_FORM = 'logical_form'
-NER = 'ner'
-COREF = 'coref'
-PREDICATE = 'predicate'
-TYPE = 'type'
-
-# helper tokens
-START_TOKEN = '[START]'
-END_TOKEN = '[END]'
-CTX_TOKEN = '[CTX]'
-PAD_TOKEN = '[PAD]'
-UNK_TOKEN = '[UNK]'
-SEP_TOKEN = '[SEP]'
-
 class NoamOpt:
     "Optim wrapper that implements rate."
-    def __init__(self, optimizer, model_size=args.embDim, factor=1, warmup=4000):
+    def __init__(self, optimizer, model_size=300, factor=1, warmup=4000):
         self.optimizer = optimizer
         self._step = 0
         self.warmup = warmup
@@ -208,12 +187,12 @@ class AccuracyScorer(object):
                 'type_correct': correct_type,
             })
 
-    def write_results(self):
+    def write_results(self, path='experiments/error_analysis'):
         save_dict = json.dumps(self.data_dict, indent=4)
         save_dict_no_space_1 = re.sub(r'": \[\s+', '": [', save_dict)
         save_dict_no_space_2 = re.sub(r'",\s+', '", ', save_dict_no_space_1)
         save_dict_no_space_3 = re.sub(r'"\s+\]', '"]', save_dict_no_space_2)
-        with open(f'{ROOT_PATH}/{args.path_error_analysis}/error_analysis.json', 'w', encoding='utf-8') as json_file:
+        with open(f'{ROOT_PATH}/{path}/error_analysis.json', 'w', encoding='utf-8') as json_file:
             json_file.write(save_dict_no_space_3)
 
     def ner_accuracy(self):
@@ -245,8 +224,8 @@ class AccuracyScorer(object):
         self.results = []
         self.instances = 0
 
-def save_checkpoint(state):
-    filename = f'{ROOT_PATH}/{args.snapshots}/ConvQA_model_e{state["epoch"]}_v-{state["best_val"]:.2f}.pth.tar'
+def save_checkpoint(state, snapshots_path='experiments/snapshots'):
+    filename = f'{ROOT_PATH}/{snapshots_path}/ConvQA_model_e{state["epoch"]}_v-{state["best_val"]:.2f}.pth.tar'
     torch.save(state, filename)
 
 def init_weights(model):
@@ -313,7 +292,7 @@ class MultiTaskLoss(nn.Module):
         self.mml_emp = torch.Tensor([True, True, True, True, True])
         self.log_vars = torch.nn.Parameter(torch.zeros(len(self.mml_emp)))
 
-    def forward(self, output, target):
+    def forward(self, output, target, task='multi_task'):
         # weighted loss
         task_losses = torch.stack((
             self.ner_loss(output['ner'], target['ner']),
@@ -336,7 +315,7 @@ class MultiTaskLoss(nn.Module):
             'predicate': losses[3],
             'type': losses[4],
             'multi_task': losses.mean()
-        }[args.task]
+        }[task]
 
 def Embedding(num_embeddings, embedding_dim, padding_idx):
     """Embedding layer"""

@@ -5,15 +5,22 @@ import torch.onnx.operators
 import torch.nn.functional as F
 from torch.autograd import Variable
 from args import get_parser
-from utils import PAD_TOKEN, Embedding, Linear
+from utils import Embedding, Linear
+from const import PAD_TOKEN
 
 # read parser
-parser = get_parser()
-args = parser.parse_args()
+#parser = get_parser()
+#args = parser.parse_args()
+embDim = 300
+dropout = 0.1
+heads = 6
+pf_dim = 300
+max_positions = 500
+layers = 2
 
 class Encoder(nn.Module):
-    def __init__(self, vocabulary, device, embed_dim=args.embDim, layers=args.layers,
-                 heads=args.heads, pf_dim=args.pf_dim, dropout=args.dropout, max_positions=args.max_positions):
+    def __init__(self, vocabulary, device, embed_dim=embDim, layers=layers,
+                 heads=heads, pf_dim=pf_dim, dropout=dropout, max_positions=max_positions):
         super().__init__()
         input_dim = len(vocabulary)
         self.padding_idx = vocabulary.stoi[PAD_TOKEN]
@@ -56,8 +63,8 @@ class EncoderLayer(nn.Module):
         return x
 
 class Decoder(nn.Module):
-    def __init__(self, vocabulary, device, embed_dim=args.embDim, layers=args.layers,
-                 heads=args.heads, pf_dim=args.pf_dim, dropout=args.dropout, max_positions=args.max_positions):
+    def __init__(self, vocabulary, device, embed_dim=embDim, layers=layers,
+                 heads=heads, pf_dim=pf_dim, dropout=dropout, max_positions=max_positions):
         super().__init__()
 
         output_dim = len(vocabulary)
@@ -95,7 +102,7 @@ class Decoder(nn.Module):
 
         x = h.contiguous().view(-1, h.shape[-1])
         x = self.linear_out(x)
-        x = F.log_softmax(x, dim=1)
+        #x = F.log_softmax(x, dim=1)
 
         return x, h
 
