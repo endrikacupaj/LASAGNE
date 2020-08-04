@@ -7,20 +7,13 @@ import numpy as np
 import torch.optim
 import torch.nn as nn
 from pathlib import Path
-from args import get_parser
 from models.model import ConvQA
 from csqa_dataset import CSQADataset
 from torchtext.data import BucketIterator
-from utils import AverageMeter, Scorer, Predictor
-from utils import (INPUT, LOGICAL_FORM, NER, COREF, COREF_RANKING, PREDICATE, TYPE, PAD_TOKEN)
-from utils import SingleTaskLoss, MultiTaskLoss
+from utils import SingleTaskLoss, MultiTaskLoss, AverageMeter, Scorer, Predictor
 
-# set root path
-ROOT_PATH = Path(os.path.dirname(__file__))
-
-# read parser
-parser = get_parser()
-args = parser.parse_args()
+# import constants
+from constants import *
 
 # set logger
 logging.basicConfig(format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
@@ -41,8 +34,7 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed_all(args.seed)
 
 # define device
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-torch.cuda.set_device(1)
+torch.cuda.set_device(3)
 
 def main():
     # load data
@@ -56,13 +48,14 @@ def main():
 
     # define loss function (criterion)
     criterion = {
+        LOGICAL_FORM: SingleTaskLoss,
         NER: SingleTaskLoss,
         COREF: SingleTaskLoss,
+        COREF_TYPE: SingleTaskLoss,
         COREF_RANKING: SingleTaskLoss,
-        LOGICAL_FORM: SingleTaskLoss,
         PREDICATE: SingleTaskLoss,
         TYPE: SingleTaskLoss,
-        'multi_task': MultiTaskLoss
+        MULTITASK: MultiTaskLoss
     }[args.task](ignore_index=vocabs[LOGICAL_FORM].stoi[PAD_TOKEN])
 
     logger.info(f"=> loading checkpoint '{args.model_path}'")
@@ -70,9 +63,9 @@ def main():
         checkpoint = torch.load(f'{ROOT_PATH}/{args.model_path}', encoding='latin1', map_location='cpu')
     else:
         checkpoint = torch.load(f'{ROOT_PATH}/{args.model_path}', encoding='latin1')
-    args.start_epoch = checkpoint['epoch']
-    model.load_state_dict(checkpoint['state_dict'])
-    logger.info(f"=> loaded checkpoint '{args.model_path}' (epoch {checkpoint['epoch']})")
+    args.start_epoch = checkpoint[EPOCH]
+    model.load_state_dict(checkpoint[STATE_DICT])
+    logger.info(f"=> loaded checkpoint '{args.model_path}' (epoch {checkpoint[EPOCH]})")
 
     # prepare training and validation loader
     val_loader, test_loader = BucketIterator.splits((val_data, test_data),
@@ -120,6 +113,7 @@ def test(loader, model, vocabs, criterion):
             logical_form = batch.logical_form
             ner = batch.ner
             coref = batch.coref
+            coref_type = batch.coref_type
             coref_ranking = batch.coref_ranking
             predicate_cls = batch.predicate
             type_cls = batch.type
@@ -129,12 +123,13 @@ def test(loader, model, vocabs, criterion):
 
             # prepare targets
             target = {
+                LOGICAL_FORM: logical_form[:, 1:].contiguous().view(-1), # (batch_size * trg_len)
                 NER: ner.contiguous().view(-1),
                 COREF: coref.contiguous().view(-1),
+                COREF_TYPE: coref_type.contiguous().view(-1),
                 COREF_RANKING: coref_ranking[:, 1:].contiguous().view(-1),
-                LOGICAL_FORM: logical_form[:, 1:].contiguous().view(-1), # (batch_size * trg_len)
                 PREDICATE: predicate_cls[:, 1:].contiguous().view(-1),
-                TYPE: type_cls[:, 1:].contiguous().view(-1),
+                TYPE: type_cls[:, 1:].contiguous().view(-1)
             }
 
             # compute loss

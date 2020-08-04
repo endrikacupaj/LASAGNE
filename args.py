@@ -18,7 +18,14 @@ def get_parser():
     parser.add_argument('--path_inference', default='experiments/inference', type=str)
 
     # task
-    parser.add_argument('--task', default='multi_task', choices=['multi_task', 'ner', 'coref', 'logical_form'], type=str)
+    parser.add_argument('--task', default='multitask', choices=['multitask',
+                                                                'logical_form',
+                                                                'ner',
+                                                                'coref',
+                                                                'coref_type',
+                                                                'coref_ranking',
+                                                                'predicate',
+                                                                'type'], type=str)
 
     # model
     parser.add_argument('--embDim', default=300, type=int)
@@ -42,7 +49,7 @@ def get_parser():
     parser.add_argument('--batch_size', default=100, type=int)
 
     # test and inference
-    parser.add_argument('--model_path', default='experiments/snapshots/ConvQA_model_e12_v-0.0057.pth.tar', type=str)
+    parser.add_argument('--model_path', default='experiments/snapshots/', type=str)
     parser.add_argument('--inference_partition', default='test', choices=['val', 'test'], type=str)
     # question type
     parser.add_argument('--question_type', default='Simple Question (Direct)',

@@ -12,16 +12,12 @@ from args import get_parser
 from models.model import ConvQA
 from csqa_dataset import CSQADataset
 from torchtext.data import BucketIterator
-from utils import NoamOpt, AverageMeter, save_checkpoint, init_weights
-from utils import (INPUT, LOGICAL_FORM, NER, COREF, PAD_TOKEN, PREDICATE, TYPE, COREF_RANKING)
-from utils import SingleTaskLoss, MultiTaskLoss
+from utils import (NoamOpt, AverageMeter,
+                    SingleTaskLoss, MultiTaskLoss,
+                    save_checkpoint, init_weights)
 
-# set root path
-ROOT_PATH = Path(os.path.dirname(__file__))
-
-# read parser
-parser = get_parser()
-args = parser.parse_args()
+# import constants
+from constants import *
 
 # set logger
 logging.basicConfig(format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
@@ -42,8 +38,7 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed_all(args.seed)
 
 # define device
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-torch.cuda.set_device(1)
+torch.cuda.set_device(3)
 
 def main():
     # load data
@@ -61,13 +56,14 @@ def main():
 
     # define loss function (criterion)
     criterion = {
+        LOGICAL_FORM: SingleTaskLoss,
         NER: SingleTaskLoss,
         COREF: SingleTaskLoss,
+        COREF_TYPE: SingleTaskLoss,
         COREF_RANKING: SingleTaskLoss,
-        LOGICAL_FORM: SingleTaskLoss,
         PREDICATE: SingleTaskLoss,
         TYPE: SingleTaskLoss,
-        'multi_task': MultiTaskLoss
+        MULTITASK: MultiTaskLoss
     }[args.task](ignore_index=vocabs[LOGICAL_FORM].stoi[PAD_TOKEN])
 
     # define optimizer
@@ -77,11 +73,11 @@ def main():
         if os.path.isfile(args.resume):
             logger.info(f"=> loading checkpoint '{args.resume}''")
             checkpoint = torch.load(args.resume)
-            args.start_epoch = checkpoint['epoch']
-            best_val = checkpoint['best_val']
-            model.load_state_dict(checkpoint['state_dict'])
-            optimizer.optimizer.load_state_dict(checkpoint['optimizer'])
-            logger.info(f"=> loaded checkpoint '{args.resume}' (epoch {checkpoint['epoch']})")
+            args.start_epoch = checkpoint[EPOCH]
+            best_val = checkpoint[BEST_VAL]
+            model.load_state_dict(checkpoint[STATE_DICT])
+            optimizer.optimizer.load_state_dict(checkpoint[OPTIMIZER])
+            logger.info(f"=> loaded checkpoint '{args.resume}' (epoch {checkpoint[EPOCH]})")
         else:
             logger.info(f"=> no checkpoint found at '{args.resume}'")
             best_val = float('inf')
@@ -104,6 +100,7 @@ def main():
     logger.info(f"Unique tokens in logical form vocabulary: {len(vocabs[LOGICAL_FORM])}")
     logger.info(f"Unique tokens in ner vocabulary: {len(vocabs[NER])}")
     logger.info(f"Unique tokens in coref vocabulary: {len(vocabs[COREF])}")
+    logger.info(f"Unique tokens in coref type vocabulary: {len(vocabs[COREF_TYPE])}")
     logger.info(f"Unique tokens in coref ranking vocabulary: {len(vocabs[COREF_RANKING])}")
     logger.info(f"Unique tokens in predicate vocabulary: {len(vocabs[PREDICATE])}")
     logger.info(f"Unique tokens in type vocabulary: {len(vocabs[TYPE])}")
@@ -121,11 +118,11 @@ def main():
             if val_loss < best_val:
                 best_val = min(val_loss, best_val)
                 save_checkpoint({
-                    'epoch': epoch + 1,
-                    'state_dict': model.state_dict(),
-                    'best_val': best_val,
-                    'optimizer': optimizer.optimizer.state_dict(),
-                    'curr_val': val_loss})
+                    EPOCH: epoch + 1,
+                    STATE_DICT: model.state_dict(),
+                    BEST_VAL: best_val,
+                    OPTIMIZER: optimizer.optimizer.state_dict(),
+                    CURR_VAL: val_loss})
             logger.info(f'* Val loss: {val_loss:.4f}')
 
 def train(train_loader, model, vocabs, criterion, optimizer, epoch):
@@ -142,6 +139,7 @@ def train(train_loader, model, vocabs, criterion, optimizer, epoch):
         logical_form = batch.logical_form
         ner = batch.ner
         coref = batch.coref
+        coref_type = batch.coref_type
         coref_ranking = batch.coref_ranking
         predicate_cls = batch.predicate
         type_cls = batch.type
@@ -151,10 +149,11 @@ def train(train_loader, model, vocabs, criterion, optimizer, epoch):
 
         # prepare targets
         target = {
+            LOGICAL_FORM: logical_form[:, 1:].contiguous().view(-1), # (batch_size * trg_len)
             NER: ner.contiguous().view(-1),
             COREF: coref.contiguous().view(-1),
+            COREF_TYPE: coref_type.contiguous().view(-1),
             COREF_RANKING: coref_ranking[:, 1:].contiguous().view(-1),
-            LOGICAL_FORM: logical_form[:, 1:].contiguous().view(-1), # (batch_size * trg_len)
             PREDICATE: predicate_cls[:, 1:].contiguous().view(-1),
             TYPE: type_cls[:, 1:].contiguous().view(-1)
         }
@@ -190,6 +189,7 @@ def validate(val_loader, model, vocabs, criterion):
             logical_form = batch.logical_form
             ner = batch.ner
             coref = batch.coref
+            coref_type = batch.coref_type
             coref_ranking = batch.coref_ranking
             predicate_cls = batch.predicate
             type_cls = batch.type
@@ -199,10 +199,11 @@ def validate(val_loader, model, vocabs, criterion):
 
             # prepare targets
             target = {
+                LOGICAL_FORM: logical_form[:, 1:].contiguous().view(-1), # (batch_size * trg_len)
                 NER: ner.contiguous().view(-1),
                 COREF: coref.contiguous().view(-1),
+                COREF_TYPE: coref_type.contiguous().view(-1),
                 COREF_RANKING: coref_ranking[:, 1:].contiguous().view(-1),
-                LOGICAL_FORM: logical_form[:, 1:].contiguous().view(-1), # (batch_size * trg_len)
                 PREDICATE: predicate_cls[:, 1:].contiguous().view(-1),
                 TYPE: type_cls[:, 1:].contiguous().view(-1)
             }

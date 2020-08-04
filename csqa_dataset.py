@@ -9,9 +9,9 @@ from glob import glob
 from pathlib import Path
 from transformers import BertTokenizer
 from torchtext.data import Field, Example, Dataset
-from utils import (INPUT, LOGICAL_FORM, NER, COREF, START_TOKEN, END_TOKEN,
-                    CTX_TOKEN, PAD_TOKEN, UNK_TOKEN, SEP_TOKEN, PREDICATE, TYPE,
-                    COREF_RANKING)
+
+# import constants
+from constants import *
 
 class CSQADataset(object):
     """CSQADataset class"""
@@ -40,6 +40,7 @@ class CSQADataset(object):
                 logical_form = []
                 ner_tag = []
                 coref = []
+                coref_type = []
                 coref_ranking = []
                 predicate_cls = []
                 type_cls = []
@@ -129,9 +130,15 @@ class CSQADataset(object):
                     for context in reversed(user['context'] + system['context'] + next_user['context']):
                         if context[2] in coref_ent and context[4] == 'B':
                             coref.append('1')
+                            if context[3] == 'NA':
+                                coref_type.append('NO_TYPE')
+                            else:
+                                if len(context[3]) == 1: raise ValueError('Was ist das!')
+                                coref_type.append(context[3])
                             coref_ent.remove(context[2])
                         else:
                             coref.append('0')
+                            coref_type.append('NA')
 
                         # coref ranking
                         if context[2] in action_entities and context[2] not in coref_ranking_entities:
@@ -139,25 +146,40 @@ class CSQADataset(object):
 
                     if i == 0:
                         coref.extend(['0', '0', '0', '0'])
+                        coref_type.extend(['NA', 'NA', 'NA', 'NA'])
                     else:
                         coref.append('0')
+                        coref_type.append('NA')
                         for context in reversed(prev_system_conv['context']):
                             if context[2] in coref_ent and context[4] == 'B':
                                 coref.append('1')
+                                if context[3] == 'NA':
+                                    coref_type.append('NO_TYPE')
+                                else:
+                                    if len(context[3]) == 1: raise ValueError('Was ist das!')
+                                    coref_type.append(context[3])
                                 coref_ent.remove(context[2])
                             else:
                                 coref.append('0')
+                                coref_type.append('NA')
                             # coref ranking
                             if context[2] in action_entities and context[2] not in coref_ranking_entities:
                                 coref_ranking_entities.append(context[2])
 
                         coref.append('0')
+                        coref_type.append('NA')
                         for context in reversed(prev_user_conv['context']):
                             if context[2] in coref_ent and context[4] == 'B':
                                 coref.append('1')
+                                if context[3] == 'NA':
+                                    coref_type.append('NO_TYPE')
+                                else:
+                                    if len(context[3]) == 1: raise ValueError('Was ist das!')
+                                    coref_type.append(context[3])
                                 coref_ent.remove(context[2])
                             else:
                                 coref.append('0')
+                                coref_type.append('NA')
 
                             # coref ranking
                             if context[2] in action_entities and context[2] not in coref_ranking_entities:
@@ -229,9 +251,15 @@ class CSQADataset(object):
                     for context in reversed(user['context']):
                         if context[2] in coref_ent and context[4] == 'B' and user['description'] not in ['Simple Question|Mult. Entity', 'Verification|one entity, multiple entities (as object) referred indirectly']:
                             coref.append('1')
+                            if context[3] == 'NA':
+                                coref_type.append('NO_TYPE')
+                            else:
+                                if len(context[3]) == 1: raise ValueError('Was ist das!')
+                                coref_type.append(context[3])
                             coref_ent.remove(context[2])
                         else:
                             coref.append('0')
+                            coref_type.append('NA')
 
                         # coref ranking
                         if context[2] in action_entities and context[2] not in coref_ranking_entities:
@@ -239,26 +267,41 @@ class CSQADataset(object):
 
                     if i == 0:
                         coref.extend(['0', '0', '0', '0'])
+                        coref_type.extend(['NA', 'NA', 'NA', 'NA'])
                     else:
                         coref.append('0')
+                        coref_type.append('NA')
                         for context in reversed(prev_system_conv['context']):
                             if context[2] in coref_ent and context[4] == 'B' and user['description'] not in ['Simple Question|Mult. Entity', 'Verification|one entity, multiple entities (as object) referred indirectly']:
                                 coref.append('1')
+                                if context[3] == 'NA':
+                                    coref_type.append('NO_TYPE')
+                                else:
+                                    if len(context[3]) == 1: raise ValueError('Was ist das!')
+                                    coref_type.append(context[3])
                                 coref_ent.remove(context[2])
                             else:
                                 coref.append('0')
+                                coref_type.append('NA')
 
                             # coref ranking
                             if context[2] in action_entities and context[2] not in coref_ranking_entities:
                                 coref_ranking_entities.append(context[2])
 
                         coref.append('0')
+                        coref_type.append('NA')
                         for context in reversed(prev_user_conv['context']):
                             if context[2] in coref_ent and context[4] == 'B' and user['description'] not in ['Simple Question|Mult. Entity', 'Verification|one entity, multiple entities (as object) referred indirectly']:
                                 coref.append('1')
+                                if context[3] == 'NA':
+                                    coref_type.append('NO_TYPE')
+                                else:
+                                    if len(context[3]) == 1: raise ValueError('Was ist das!')
+                                    coref_type.append(context[3])
                                 coref_ent.remove(context[2])
                             else:
                                 coref.append('0')
+                                coref_type.append('NA')
 
                             # coref ranking
                             if context[2] in action_entities and context[2] not in coref_ranking_entities:
@@ -310,11 +353,12 @@ class CSQADataset(object):
 
                 assert len(input) == len(ner_tag)
                 assert len(input) == len(coref)
+                assert len(input) == len(coref_type)
                 assert len(logical_form) == len(predicate_cls)
                 assert len(logical_form) == len(type_cls)
                 assert len(logical_form) == len(coref_ranking)
 
-                input_data.append([input, logical_form, ner_tag, list(reversed(coref)), predicate_cls, type_cls, coref_ranking])
+                input_data.append([input, logical_form, ner_tag, list(reversed(coref)), list(reversed(coref_type)), coref_ranking, predicate_cls, type_cls])
                 helper_data['question_type'].append(user['question-type'])
 
         return input_data, helper_data
@@ -1004,10 +1048,10 @@ class CSQADataset(object):
                                 lower=True,
                                 batch_first=True)
 
-        self.ner_field = Field(init_token='O',
-                                eos_token='O',
+        self.ner_field = Field(init_token=O,
+                                eos_token=O,
                                 pad_token=PAD_TOKEN,
-                                unk_token='O',
+                                unk_token=O,
                                 batch_first=True)
 
         self.coref_field = Field(init_token='0',
@@ -1016,16 +1060,10 @@ class CSQADataset(object):
                                 unk_token='0',
                                 batch_first=True)
 
-        self.predicate_field = Field(init_token='NA',
-                                eos_token='NA',
-                                pad_token='NA',
-                                unk_token='NA',
-                                batch_first=True)
-
-        self.type_field = Field(init_token='NA',
-                                eos_token='NA',
-                                pad_token='NA',
-                                unk_token='NA',
+        self.coref_type_field = Field(init_token=NA_TOKEN,
+                                eos_token=NA_TOKEN,
+                                pad_token=PAD_TOKEN,
+                                unk_token=NA_TOKEN,
                                 batch_first=True)
 
         self.coref_ranking_field = Field(init_token='0',
@@ -1034,10 +1072,22 @@ class CSQADataset(object):
                                 unk_token='0',
                                 batch_first=True)
 
+        self.predicate_field = Field(init_token=NA_TOKEN,
+                                eos_token=NA_TOKEN,
+                                pad_token=NA_TOKEN,
+                                unk_token=NA_TOKEN,
+                                batch_first=True)
+
+        self.type_field = Field(init_token=NA_TOKEN,
+                                eos_token=NA_TOKEN,
+                                pad_token=NA_TOKEN,
+                                unk_token=NA_TOKEN,
+                                batch_first=True)
+
         fields_tuple = [(INPUT, self.input_field), (LOGICAL_FORM, self.lf_field),
                         (NER, self.ner_field), (COREF, self.coref_field),
-                        (PREDICATE, self.predicate_field), (TYPE, self.type_field),
-                        (COREF_RANKING, self.coref_ranking_field)]
+                        (COREF_TYPE, self.coref_type_field), (COREF_RANKING, self.coref_ranking_field),
+                        (PREDICATE, self.predicate_field), (TYPE, self.type_field)]
 
         # create toechtext datasets
         self.train_data = self._make_torchtext_dataset(train, fields_tuple)
@@ -1049,6 +1099,7 @@ class CSQADataset(object):
         self.lf_field.build_vocab(self.train_data, min_freq=0)
         self.ner_field.build_vocab(self.train_data, min_freq=0)
         self.coref_field.build_vocab(self.train_data, min_freq=0)
+        self.coref_type_field.build_vocab(self.train_data, self.val_data, self.test_data, min_freq=0)
         self.coref_ranking_field.build_vocab(self.train_data, min_freq=0)
         self.predicate_field.build_vocab(self.train_data, self.val_data, self.test_data, min_freq=0)
         self.type_field.build_vocab(self.train_data, self.val_data, self.test_data, min_freq=0)
@@ -1068,9 +1119,10 @@ class CSQADataset(object):
             LOGICAL_FORM: self.lf_field,
             NER: self.ner_field,
             COREF: self.coref_field,
+            COREF_TYPE: self.coref_type_field,
+            COREF_RANKING: self.coref_ranking_field,
             PREDICATE: self.predicate_field,
-            TYPE: self.type_field,
-            COREF_RANKING: self.coref_ranking_field
+            TYPE: self.type_field
         }
 
     def get_vocabs(self):
@@ -1080,7 +1132,8 @@ class CSQADataset(object):
             LOGICAL_FORM: self.lf_field.vocab,
             NER: self.ner_field.vocab,
             COREF: self.coref_field.vocab,
+            COREF_TYPE: self.coref_type_field.vocab,
+            COREF_RANKING: self.coref_ranking_field.vocab,
             PREDICATE: self.predicate_field.vocab,
-            TYPE: self.type_field.vocab,
-            COREF_RANKING: self.coref_ranking_field.vocab
+            TYPE: self.type_field.vocab
         }
