@@ -38,11 +38,11 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed_all(args.seed)
 
 # define device
-torch.cuda.set_device(3)
+torch.cuda.set_device(0)
 
 def main():
     # load data
-    dataset = CSQADataset(args.data_path)
+    dataset = CSQADataset()
     vocabs = dataset.get_vocabs()
     train_data, val_data, _ = dataset.get_data()
 
@@ -59,8 +59,6 @@ def main():
         LOGICAL_FORM: SingleTaskLoss,
         NER: SingleTaskLoss,
         COREF: SingleTaskLoss,
-        COREF_TYPE: SingleTaskLoss,
-        COREF_RANKING: SingleTaskLoss,
         PREDICATE: SingleTaskLoss,
         TYPE: SingleTaskLoss,
         MULTITASK: MultiTaskLoss
@@ -100,8 +98,6 @@ def main():
     logger.info(f"Unique tokens in logical form vocabulary: {len(vocabs[LOGICAL_FORM])}")
     logger.info(f"Unique tokens in ner vocabulary: {len(vocabs[NER])}")
     logger.info(f"Unique tokens in coref vocabulary: {len(vocabs[COREF])}")
-    logger.info(f"Unique tokens in coref type vocabulary: {len(vocabs[COREF_TYPE])}")
-    logger.info(f"Unique tokens in coref ranking vocabulary: {len(vocabs[COREF_RANKING])}")
     logger.info(f"Unique tokens in predicate vocabulary: {len(vocabs[PREDICATE])}")
     logger.info(f"Unique tokens in type vocabulary: {len(vocabs[TYPE])}")
     logger.info(f'Batch: {args.batch_size}')
@@ -115,14 +111,14 @@ def main():
         # evaluate on validation set
         if (epoch+1) % args.valfreq == 0:
             val_loss = validate(val_loader, model, vocabs, criterion)
-            if val_loss < best_val:
-                best_val = min(val_loss, best_val)
-                save_checkpoint({
-                    EPOCH: epoch + 1,
-                    STATE_DICT: model.state_dict(),
-                    BEST_VAL: best_val,
-                    OPTIMIZER: optimizer.optimizer.state_dict(),
-                    CURR_VAL: val_loss})
+            # if val_loss < best_val:
+            best_val = min(val_loss, best_val) # log every validation step
+            save_checkpoint({
+                EPOCH: epoch + 1,
+                STATE_DICT: model.state_dict(),
+                BEST_VAL: best_val,
+                OPTIMIZER: optimizer.optimizer.state_dict(),
+                CURR_VAL: val_loss})
             logger.info(f'* Val loss: {val_loss:.4f}')
 
 def train(train_loader, model, vocabs, criterion, optimizer, epoch):
@@ -139,8 +135,6 @@ def train(train_loader, model, vocabs, criterion, optimizer, epoch):
         logical_form = batch.logical_form
         ner = batch.ner
         coref = batch.coref
-        coref_type = batch.coref_type
-        coref_ranking = batch.coref_ranking
         predicate_cls = batch.predicate
         type_cls = batch.type
 
@@ -152,8 +146,6 @@ def train(train_loader, model, vocabs, criterion, optimizer, epoch):
             LOGICAL_FORM: logical_form[:, 1:].contiguous().view(-1), # (batch_size * trg_len)
             NER: ner.contiguous().view(-1),
             COREF: coref.contiguous().view(-1),
-            COREF_TYPE: coref_type.contiguous().view(-1),
-            COREF_RANKING: coref_ranking[:, 1:].contiguous().view(-1),
             PREDICATE: predicate_cls[:, 1:].contiguous().view(-1),
             TYPE: type_cls[:, 1:].contiguous().view(-1)
         }
@@ -189,8 +181,6 @@ def validate(val_loader, model, vocabs, criterion):
             logical_form = batch.logical_form
             ner = batch.ner
             coref = batch.coref
-            coref_type = batch.coref_type
-            coref_ranking = batch.coref_ranking
             predicate_cls = batch.predicate
             type_cls = batch.type
 
@@ -202,8 +192,6 @@ def validate(val_loader, model, vocabs, criterion):
                 LOGICAL_FORM: logical_form[:, 1:].contiguous().view(-1), # (batch_size * trg_len)
                 NER: ner.contiguous().view(-1),
                 COREF: coref.contiguous().view(-1),
-                COREF_TYPE: coref_type.contiguous().view(-1),
-                COREF_RANKING: coref_ranking[:, 1:].contiguous().view(-1),
                 PREDICATE: predicate_cls[:, 1:].contiguous().view(-1),
                 TYPE: type_cls[:, 1:].contiguous().view(-1)
             }
