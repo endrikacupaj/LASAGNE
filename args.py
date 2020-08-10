@@ -9,7 +9,7 @@ def get_parser():
     parser.add_argument('--cuda_device', default=0, type=int)
 
     # data
-    parser.add_argument('--data_path', default='/data/final/csqa/sample3')
+    parser.add_argument('--data_path', default='/data/final/csqa')
 
     # experiments
     parser.add_argument('--snapshots', default='experiments/snapshots', type=str)
@@ -22,17 +22,15 @@ def get_parser():
                                                                 'logical_form',
                                                                 'ner',
                                                                 'coref',
-                                                                'coref_type',
-                                                                'coref_ranking',
                                                                 'predicate',
                                                                 'type'], type=str)
 
     # model
-    parser.add_argument('--embDim', default=300, type=int)
+    parser.add_argument('--emb_dim', default=300, type=int)
     parser.add_argument('--dropout', default=0.1, type=int)
     parser.add_argument('--heads', default=6, type=int)
     parser.add_argument('--layers', default=2, type=int)
-    parser.add_argument('--max_positions', default=500, type=int)
+    parser.add_argument('--max_positions', default=1000, type=int)
     parser.add_argument('--pf_dim', default=300, type=int)
 
     # training
@@ -41,17 +39,16 @@ def get_parser():
     parser.add_argument('--warmup', default=4000, type=float)
     parser.add_argument('--factor', default=1, type=float)
     parser.add_argument('--weight_decay', default=0, type=float)
-    parser.add_argument('--epochs', default=10, type=int)
+    parser.add_argument('--epochs', default=20, type=int)
     parser.add_argument('--start_epoch', default=0, type=int)
     parser.add_argument('--valfreq', default=1, type=int)
     parser.add_argument('--resume', default='', type=str)
     parser.add_argument('--clip', default=5, type=int)
-    parser.add_argument('--batch_size', default=100, type=int)
+    parser.add_argument('--batch_size', default=64, type=int)
 
     # test and inference
-    parser.add_argument('--model_path', default='experiments/snapshots/', type=str)
+    parser.add_argument('--model_path', default='experiments/snapshots/ConvQA_model_e5_v-0.0157.pth.tar', type=str)
     parser.add_argument('--inference_partition', default='test', choices=['val', 'test'], type=str)
-    # question type
     parser.add_argument('--question_type', default='Simple Question (Direct)',
         choices=['Clarification',
                 'Comparative Reasoning (All)',

@@ -12,7 +12,7 @@ parser = get_parser()
 args = parser.parse_args()
 
 class Encoder(nn.Module):
-    def __init__(self, vocabulary, device, embed_dim=args.embDim, layers=args.layers,
+    def __init__(self, vocabulary, device, embed_dim=args.emb_dim, layers=args.layers,
                  heads=args.heads, pf_dim=args.pf_dim, dropout=args.dropout, max_positions=args.max_positions):
         super().__init__()
         input_dim = len(vocabulary)
@@ -56,7 +56,7 @@ class EncoderLayer(nn.Module):
         return x
 
 class Decoder(nn.Module):
-    def __init__(self, vocabulary, device, embed_dim=args.embDim, layers=args.layers,
+    def __init__(self, vocabulary, device, embed_dim=args.emb_dim, layers=args.layers,
                  heads=args.heads, pf_dim=args.pf_dim, dropout=args.dropout, max_positions=args.max_positions):
         super().__init__()
 
