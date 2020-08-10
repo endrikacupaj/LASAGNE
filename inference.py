@@ -37,11 +37,11 @@ if torch.cuda.is_available():
 
 # define device
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-torch.cuda.set_device(3)
+torch.cuda.set_device(2)
 
 def main():
     # load data
-    dataset = CSQADataset(args.data_path)
+    dataset = CSQADataset()
     vocabs = dataset.get_vocabs()
     inference_data = dataset.get_inference_data(args.inference_partition)
 
@@ -59,7 +59,7 @@ def main():
 
     logger.info(f'Inference partition: {args.inference_partition}')
     logger.info(f'Inference question type: {args.question_type}')
-    logger.info('Inference data prepared.')
+    logger.info('Inference data prepared')
     logger.info(f"Num of inference data: {len(inference_data)}")
 
     # construct actions
