@@ -2,4 +2,4 @@ experiments/*
 __pycache__*
 .vector_cache*
 plan.txt
-scripts/knowledge_graph/*.json
+knowledge_graph/*.json
