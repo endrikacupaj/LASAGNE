@@ -34,11 +34,11 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed_all(args.seed)
 
 # define device
-torch.cuda.set_device(3)
+torch.cuda.set_device(2)
 
 def main():
     # load data
-    dataset = CSQADataset(args.data_path)
+    dataset = CSQADataset()
     vocabs = dataset.get_vocabs()
     _, val_data, test_data = dataset.get_data()
     _, val_helper, test_helper = dataset.get_data_helper()
@@ -51,8 +51,6 @@ def main():
         LOGICAL_FORM: SingleTaskLoss,
         NER: SingleTaskLoss,
         COREF: SingleTaskLoss,
-        COREF_TYPE: SingleTaskLoss,
-        COREF_RANKING: SingleTaskLoss,
         PREDICATE: SingleTaskLoss,
         TYPE: SingleTaskLoss,
         MULTITASK: MultiTaskLoss
@@ -86,14 +84,14 @@ def main():
 
     # calculate accuracy
     predictor = Predictor(model, vocabs, DEVICE)
-    val_scorer = Scorer()
+    # val_scorer = Scorer()
     test_scorer = Scorer()
-    val_scorer.data_score(val_data.examples, val_helper, predictor)
+    # val_scorer.data_score(val_data.examples, val_helper, predictor)
     test_scorer.data_score(test_data.examples, test_helper, predictor)
     test_scorer.write_results()
 
     # log results
-    for partition, results in [['Val', val_scorer.results], ['Test', test_scorer.results]]:
+    for partition, results in [['Test', test_scorer.results]]: # [['Val', val_scorer.results], ['Test', test_scorer.results]]:
         logger.info(f'* {partition} Data Results:')
         for question_type, question_type_results in results.items():
             logger.info(f'\t{question_type}:')
@@ -113,8 +111,6 @@ def test(loader, model, vocabs, criterion):
             logical_form = batch.logical_form
             ner = batch.ner
             coref = batch.coref
-            coref_type = batch.coref_type
-            coref_ranking = batch.coref_ranking
             predicate_cls = batch.predicate
             type_cls = batch.type
 
@@ -126,8 +122,6 @@ def test(loader, model, vocabs, criterion):
                 LOGICAL_FORM: logical_form[:, 1:].contiguous().view(-1), # (batch_size * trg_len)
                 NER: ner.contiguous().view(-1),
                 COREF: coref.contiguous().view(-1),
-                COREF_TYPE: coref_type.contiguous().view(-1),
-                COREF_RANKING: coref_ranking[:, 1:].contiguous().view(-1),
                 PREDICATE: predicate_cls[:, 1:].contiguous().view(-1),
                 TYPE: type_cls[:, 1:].contiguous().view(-1)
             }
