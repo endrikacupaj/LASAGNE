@@ -22,8 +22,8 @@ logging.basicConfig(format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s'
                     datefmt='%d/%m/%Y %I:%M:%S %p',
                     level=logging.INFO,
                     handlers=[
-                        # logging.FileHandler(f'{args.path_results}/test.log', 'w'),
-                        # logging.StreamHandler()
+                        # logging.FileHandler(f'{args.path_results}/inference_{args.question_type}.log', 'w'),
+                        logging.StreamHandler()
                     ])
 logger = logging.getLogger(__name__)
 
@@ -37,13 +37,18 @@ if torch.cuda.is_available():
 
 # define device
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-torch.cuda.set_device(2)
+torch.cuda.set_device(1)
 
 def main():
     # load data
     dataset = CSQADataset()
     vocabs = dataset.get_vocabs()
     inference_data = dataset.get_inference_data(args.inference_partition)
+
+    logger.info(f'Inference partition: {args.inference_partition}')
+    logger.info(f'Inference question type: {args.question_type}')
+    logger.info('Inference data prepared')
+    logger.info(f"Num of inference data: {len(inference_data)}")
 
     # load model
     model = ConvQA(vocabs).to(DEVICE)
@@ -56,11 +61,6 @@ def main():
     args.start_epoch = checkpoint['epoch']
     model.load_state_dict(checkpoint['state_dict'])
     logger.info(f"=> loaded checkpoint '{args.model_path}' (epoch {checkpoint['epoch']})")
-
-    logger.info(f'Inference partition: {args.inference_partition}')
-    logger.info(f'Inference question type: {args.question_type}')
-    logger.info('Inference data prepared')
-    logger.info(f"Num of inference data: {len(inference_data)}")
 
     # construct actions
     predictor = Predictor(model, vocabs, DEVICE)

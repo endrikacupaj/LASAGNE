@@ -19,6 +19,7 @@ from elasticsearch import Elasticsearch
 from constants import *
 
 # set logger
+logging.getLogger('elasticsearch').setLevel(logging.CRITICAL)
 logger = logging.getLogger(__name__)
 
 class NoamOpt:
@@ -265,9 +266,22 @@ class Inference(object):
                     # create a ner dictionary with index as key and entity as value
                     ner_idx_ent = self.create_ner_idx_ent_dict(ner_indices, context_question)
                     if str(ent_count_pos) not in list(coref_indices.values()):
-                        # TODO here things get hard, we will need to use all ner entites and see if it works
-                        print('No coref indices!')
-                        actions.append([ENTITY, ENTITY])
+                        if args.question_type in [CLARIFICATION, QUANTITATIVE_COUNT] and len(list(coref_indices.values())) == ent_count_pos: # simple constraint for clarification and quantitative count
+                            for l, (cidx, ctag) in enumerate(coref_indices.items()):
+                                if ctag == str(ent_count_pos-1):
+                                    if cidx in ner_idx_ent:
+                                        actions.append([ENTITY, ner_idx_ent[cidx][0]])
+                                        break
+                                    else:
+                                        print(f'Coref index {cidx} not in ner entities!')
+                                        actions.append([ENTITY, ENTITY])
+                                        break
+                        elif args.question_type == VERIFICATION and ent_count_pos == 0 and not coref_indices: # simple constraint for verification
+                            actions.append([ENTITY, ner_idx_ent.popitem()[1][0]])
+                        else:
+                            # TODO here things get hard, we will need to use all ner entites and see if it works
+                            print('No coref indices!')
+                            actions.append([ENTITY, ENTITY])
                     else:
                         for l, (cidx, ctag) in enumerate(coref_indices.items()):
                             if ctag == str(ent_count_pos):
@@ -320,7 +334,7 @@ class Inference(object):
 
     def create_ner_idx_ent_dict(self, ner_indices, context_question):
         ent_idx = []
-        ner_idx_ent = {}
+        ner_idx_ent = OrderedDict()
         for index, span_type in ner_indices.items():
             if not ent_idx or index-1 == ent_idx[-1][0]:
                 ent_idx.append([index, span_type]) # check wether token start with ## then include previous token also from context_question

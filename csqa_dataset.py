@@ -312,7 +312,7 @@ class CSQADataset(object):
                     next_system = conversation[2*(i+1) + 1]
 
                     if i == 0: # NA + [SEP] + NA + [SEP] + current_question
-                        input.extend([  'NA', SEP_TOKEN, 'NA', SEP_TOKEN])
+                        input.extend([NA_TOKEN, SEP_TOKEN, NA_TOKEN, SEP_TOKEN])
                     else:
                         # add prev context user
                         for context in prev_user_conv['context']:
@@ -342,7 +342,7 @@ class CSQADataset(object):
 
                     results = next_system['all_entities']
                     answer = next_system['utterance']
-                    gold_actions = next_system['gold_actions'] if 'gold_actions' in next_system else None
+                    gold_actions = next_system[GOLD_ACTIONS] if GOLD_ACTIONS in next_system else None
                     prev_answer = prev_system_conv['all_entities'] if 'all_entities' in prev_system_conv else None
                     context_entities = user['entities_in_utterance'] + system['entities_in_utterance']
                     if 'entities_in_utterance' in next_user: context_entities.extend(next_user['entities_in_utterance'])
@@ -354,7 +354,7 @@ class CSQADataset(object):
                     prev_system_conv = next_system.copy()
                 else:
                     if i == 0: # NA + [SEP] + NA + [SEP] + current_question
-                        input.extend([  'NA', SEP_TOKEN, 'NA', SEP_TOKEN])
+                        input.extend([NA_TOKEN, SEP_TOKEN, NA_TOKEN, SEP_TOKEN])
                     else:
                         # add prev context user
                         for context in prev_user_conv['context']:
@@ -381,7 +381,7 @@ class CSQADataset(object):
                     question = user['utterance']
                     results = system['all_entities']
                     answer = system['utterance']
-                    gold_actions = system['gold_actions'] if 'gold_actions' in system else None
+                    gold_actions = system[GOLD_ACTIONS] if GOLD_ACTIONS in system else None
                     prev_results = prev_system_conv['all_entities'] if 'all_entities' in prev_system_conv else None
                     context_entities = user['entities_in_utterance'] + system['entities_in_utterance']
                     if 'entities_in_utterance' in prev_user_conv: context_entities.extend(prev_user_conv['entities_in_utterance'])
