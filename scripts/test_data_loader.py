@@ -23,12 +23,16 @@ from knowledge_graph.knowledge_graph import *
 #%%
 kb = KnowledgeBase("/data/joanplepi/csqa/data/kb/")
 #%%
+
+#%%
 # set root path
 #ROOT_PATH = Path(os.path.dirname(__file__))
 # load data
 dataset = CSQADataset('/data/sample3')
 vocabs = dataset.get_vocabs()
 val_data = dataset.get_data()
+# %%
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # %%
 train_data, val_data, test_data = dataset.get_data()
 print(len(train_data))
@@ -136,33 +140,16 @@ def train(train_loader, model, vocabs, criterion, optimizer, epoch):
 
         print(f'Epoch: {epoch+1} - Train loss: {losses.val:.4f} ({losses.avg:.4f}) - Batch: {((i+1)/len(train_loader))*100:.2f}% - Time: {batch_time.sum:0.2f}s')
 
-
 # %%
-model.train()
-end = time.time()
-for i, batch in enumerate(train_loader):
-    # get inputs
-    input = batch.input
-    logical_form = batch.logical_form
-    ner = batch.ner
-    coref = batch.coref
-    predicate_cls = batch.predicate
-    type_cls = batch.type
-
-    # compute output
-    output = model(input, logical_form[:, :-1])
-
-    break
-# %%
-
+type_vocab = dataset.get_vocabs()[TYPE]
+pred_vocab = dataset.get_vocabs()[PREDICATE]
+    
 # %%
 # Filter types and predicates indices from NA. 
 type_ind = type_cls[type_cls != 0]
 pred_ind = predicate_cls[predicate_cls != 0]
 
 # Extract types and predicates from vocab based on indices filtered above. 
-type_vocab = dataset.get_vocabs()[TYPE]
-pred_vocab = dataset.get_vocabs()[PREDICATE]
 
 type_list = [type_vocab.itos[i] for i in type_ind]
 pred_list = [pred_vocab.itos[i] for i in pred_ind]
@@ -173,25 +160,45 @@ import gnn.graph as graph_to_reload
 reload(graph_to_reload)
 
 from gnn.graph import Graph
-
-all_graphs = []
-subgraph = Graph(type_vocab, pred_vocab)
-for type in type_list: 
-    if type in kb.type_pred_type:
-        subgraph.add_if_exists(type, kb.type_pred_type, pred_list)
-    if type in kb.rev_type_pred:
-        subgraph.add_if_exists(type, kb.rev_type_pred, pred_list)
-
-all_graphs.append(subgraph)
+# %%
+graph = Graph(type_vocab, pred_vocab)
+graph.extract_graph_mode_full(kb)
+print(len(type_vocab), len(pred_vocab))
 
 # %%
-edge_index = torch.tensor([subgraph.start, subgraph.end], dtype=torch.long)
+edge_index = torch.tensor([graph.start, graph.end], dtype=torch.long, requires_grad=False)
+print(len(graph.representations[0]))
+data = Data(x=torch.cat(graph.representations), edge_index=edge_index)
+print()
+temp_data = Data(x=torch.cat(graph.representations), edge_index=edge_index)
 
-data = Data(x=torch.cat(subgraph.representations), edge_index=edge_index)
-gat = GATConv(300, 100, heads=2, concat=False, dropout=0.2)
-out = gat(data.x, data.edge_index)
+class GraphModel(nn.Module):
+    def __init__(self, data):
+        super(GraphModel, self).__init__()
+        self.data = data
+        self.gat = GATConv(100, 100, heads=2, concat=False, dropout=0.2)
+        self.linear_layer = nn.Linear(100, 1)
 
+    def forward(self):
+        out = self.gat(self.data.x, self.data.edge_index)
+        return self.linear_layer(out)
 
+graph_model = GraphModel(data.to(DEVICE)).to(DEVICE)
+# %%
+criterion = nn.BCEWithLogitsLoss()
+optimizer = torch.optim.Adam(graph_model.parameters())
+type_target = torch.FloatTensor(graph.type_mask).to(DEVICE)
+
+for i in range(100):
+    optimizer.zero_grad()
+    output = graph_model()
+    loss = criterion(output.squeeze(), type_target)
+    print(f'Epoch {i} ---- loss: {loss.item()}')
+    loss.backward(retain_graph=True)
+    optimizer.step()
+# %%
+print(torch.equal(graph_model.data.x.cpu()[0].squeeze(), graph.representations[0].squeeze()))
+print(torch.equal(temp_data.x, graph_model.data.x.cpu()))
 # %%
 # Process csqa dataset for subgraphs.
 from glob import glob
@@ -218,21 +225,5 @@ for file in files:
         break
 
 
-# %%
-import random
-def extract_type_list(system, kb, type_vocab, total_nr=10):
-    type_list = [a[1] for a in system['gold_actions'] if a[0] == 'type']    
-    sample_size = total_nr - len(type_list)
-    type_list.extend(random.sample(type_vocab.itos, sample_size))
-    print(type_list)
-    return type_list
-
-def extract_pred_list(system, kb, pred_vocab, total_nr=10):
-    pred_list = [a[1] for a in system['gold_actions'] if a[0] == 'relation']    
-    print(pred_list)
-    sample_size = total_nr - len(pred_list)
-    pred_list.extend(random.sample(pred_vocab.itos, sample_size))
-    print(pred_list)
-    return pred_list
 
 # %%

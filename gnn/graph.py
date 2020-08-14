@@ -12,22 +12,41 @@ class Graph:
         self.representations = []
         self.start = []
         self.end = []
-        self.type_embeddings = nn.Embedding(len(type_vocab.itos), 300, padding_idx=type_vocab.stoi['NA'])
-        self.pred_embeddings = nn.Embedding(len(pred_vocab.itos), 300, padding_idx=pred_vocab.stoi['NA'])
+        self.type_embeddings = nn.Embedding(len(type_vocab.itos), 100, padding_idx=type_vocab.stoi['NA'])
+        self.pred_embeddings = nn.Embedding(len(pred_vocab.itos), 100, padding_idx=pred_vocab.stoi['NA'])
         self.type_vocab = type_vocab
         self.pred_vocab = pred_vocab
 
-    def extract_graph_mode_one(self, type_list, pred_list, kb):
-        for i, type in enumerate(type_list):
-            for j in range(i+1, len(type_list)):
-                node_end = type_list[j]
+    def extract_graph_mode_full(self, kb):
+        for type in kb.type_pred_type:
+
+            if self.type_vocab.stoi.get(type, None) is not None: # filter types that are not in vocab
                 if type not in self.node_idx:
-                    self.add_type_node_info(type)
+                        self.add_type_node_info(type)
+                for pred in kb.type_pred_type[type]:
+                    if self.pred_vocab.stoi.get(pred, None) is not None:
+                        if pred not in self.node_idx:
+                            self.add_pred_node_info(pred)
+                        
+                        for end_type in kb.type_pred_type[type][pred]:
+                            if self.type_vocab.stoi.get(end_type, None) is not None:
+                                if end_type not in self.node_idx:
+                                    self.add_type_node_info(end_type)
+                                
+                                self.add_node(type, pred)
+                                self.add_node(pred, end_type)
+
+    # def extract_graph_mode_one(self, type_list, pred_list, kb):
+    #     for i, type in enumerate(type_list):
+    #         for j in range(i+1, len(type_list)):
+    #             node_end = type_list[j]
+    #             if type not in self.node_idx:
+    #                 self.add_type_node_info(type)
                 
-                if node_end not in self.node_idx:
-                    self.add_type_node_info(node_end)
+    #             if node_end not in self.node_idx:
+    #                 self.add_type_node_info(node_end)
                     
-                self.add_node()
+    #             self.add_node()
     
     def add_type_node_info(self, type):
         self.node_idx[type] = len(self.node_idx)
@@ -50,9 +69,9 @@ class Graph:
         self.representations.append(emb.unsqueeze(0))
 
 
-    def add_node(self, node_start, node_end):
-        self.start.append(node_start)
-        self.end.append(node_end)
+    def add_node(self, start, end):
+        self.start.append(self.node_idx[start])
+        self.end.append(self.node_idx[end])
 
 
     def add_if_exists(self, head, main_struct, check_struct):
