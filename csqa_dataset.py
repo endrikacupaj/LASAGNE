@@ -15,7 +15,7 @@ from constants import *
 
 class CSQADataset(object):
     TOKENIZE_SEQ = lambda self, x: x.split()
-    ROOT_PATH = Path(os.path.dirname(__file__)).parent
+    ROOT_PATH = Path(os.path.dirname(__file__))
 
     def __init__(self):
         self.train_path = str(self.ROOT_PATH) + args.data_path + '/train/*'

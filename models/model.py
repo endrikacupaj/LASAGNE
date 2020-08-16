@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from args import get_parser
+#from args import get_parser
 from models.transformer import Encoder, Decoder
 
 # import constants
@@ -68,7 +68,7 @@ class Flatten(nn.Module):
         return x.contiguous().view(-1, x.shape[-1])
 
 class NerNet(nn.Module):
-    def __init__(self, tags, dropout=args.dropout):
+    def __init__(self, tags, dropout=dropout):
         super(NerNet, self).__init__()
         self.ner_lstm = nn.Sequential(
             nn.LSTM(input_size=args.emb_dim, hidden_size=args.emb_dim, batch_first=True),
@@ -87,7 +87,7 @@ class NerNet(nn.Module):
         return self.ner_linear(h), h
 
 class SeqNet(nn.Module):
-    def __init__(self, tags, dropout=args.dropout):
+    def __init__(self, tags, dropout=dropout):
         super(SeqNet, self).__init__()
         self.seq_net = nn.Sequential(
             nn.Linear(args.emb_dim*2, args.emb_dim),

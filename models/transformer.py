@@ -5,11 +5,18 @@ import torch.onnx.operators
 import torch.nn.functional as F
 from torch.autograd import Variable
 from args import get_parser
-from utils import PAD_TOKEN, Embedding, Linear
+from utils import Embedding, Linear
+from const import PAD_TOKEN
 
 # read parser
-parser = get_parser()
-args = parser.parse_args()
+#parser = get_parser()
+#args = parser.parse_args()
+embDim = 300
+dropout = 0.1
+heads = 6
+pf_dim = 300
+max_positions = 500
+layers = 2
 
 class Encoder(nn.Module):
     def __init__(self, vocabulary, device, embed_dim=args.emb_dim, layers=args.layers,

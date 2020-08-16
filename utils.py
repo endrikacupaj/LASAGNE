@@ -229,7 +229,7 @@ class Scorer(object):
         save_dict_no_space_1 = re.sub(r'": \[\s+', '": [', save_dict)
         save_dict_no_space_2 = re.sub(r'",\s+', '", ', save_dict_no_space_1)
         save_dict_no_space_3 = re.sub(r'"\s+\]', '"]', save_dict_no_space_2)
-        with open(f'{ROOT_PATH}/{args.path_error_analysis}/error_analysis.json', 'w', encoding='utf-8') as json_file:
+        with open(f'{ROOT_PATH}/{path}/error_analysis.json', 'w', encoding='utf-8') as json_file:
             json_file.write(save_dict_no_space_3)
 
     def reset(self):
@@ -422,7 +422,7 @@ class MultiTaskLoss(nn.Module):
         self.mml_emp = torch.Tensor([True, True, True, True, True])
         self.log_vars = torch.nn.Parameter(torch.zeros(len(self.mml_emp)))
 
-    def forward(self, output, target):
+    def forward(self, output, target, task='multi_task'):
         # weighted loss
         task_losses = torch.stack((
             self.lf_loss(output[LOGICAL_FORM], target[LOGICAL_FORM]),
