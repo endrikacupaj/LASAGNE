@@ -7,8 +7,8 @@ import numpy as np
 import torch.optim
 import torch.nn as nn
 from pathlib import Path
-from models.model import ConvQA
-from csqa_dataset import CSQADataset
+from model import ConvQA
+from dataset import CSQADataset
 from torchtext.data import BucketIterator
 from utils import SingleTaskLoss, MultiTaskLoss, AverageMeter, Scorer, Predictor
 
@@ -51,8 +51,7 @@ def main():
         LOGICAL_FORM: SingleTaskLoss,
         NER: SingleTaskLoss,
         COREF: SingleTaskLoss,
-        PREDICATE: SingleTaskLoss,
-        TYPE: SingleTaskLoss,
+        GRAPH: SingleTaskLoss,
         MULTITASK: MultiTaskLoss
     }[args.task](ignore_index=vocabs[LOGICAL_FORM].stoi[PAD_TOKEN])
 
@@ -100,8 +99,8 @@ def main():
 
 def test(loader, model, vocabs, criterion):
     losses = AverageMeter()
-    accuracy = 0
 
+    # switch to evaluate mode
     model.eval()
 
     with torch.no_grad():
@@ -111,8 +110,7 @@ def test(loader, model, vocabs, criterion):
             logical_form = batch.logical_form
             ner = batch.ner
             coref = batch.coref
-            predicate_cls = batch.predicate
-            type_cls = batch.type
+            graph = batch.graph
 
             # compute output
             output = model(input, logical_form[:, :-1])
@@ -122,8 +120,7 @@ def test(loader, model, vocabs, criterion):
                 LOGICAL_FORM: logical_form[:, 1:].contiguous().view(-1), # (batch_size * trg_len)
                 NER: ner.contiguous().view(-1),
                 COREF: coref.contiguous().view(-1),
-                PREDICATE: predicate_cls[:, 1:].contiguous().view(-1),
-                TYPE: type_cls[:, 1:].contiguous().view(-1)
+                GRAPH: graph[:, 1:].contiguous().view(-1)
             }
 
             # compute loss

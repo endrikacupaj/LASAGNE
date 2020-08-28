@@ -1,26 +1,16 @@
-import os
-import re
 import json
-import random
-import logging
-import torch
-import numpy as np
 from glob import glob
-from pathlib import Path
 from transformers import BertTokenizer
 from torchtext.data import Field, Example, Dataset
 
 # import constants
 from constants import *
 
-class CSQADataset(object):
-    TOKENIZE_SEQ = lambda self, x: x.split()
-    ROOT_PATH = Path(os.path.dirname(__file__))
-
+class CSQADataset:
     def __init__(self):
-        self.train_path = str(self.ROOT_PATH) + args.data_path + '/train/*'
-        self.val_path = str(self.ROOT_PATH) + args.data_path + '/val/*'
-        self.test_path = str(self.ROOT_PATH) + args.data_path + '/test/*'
+        self.train_path = str(ROOT_PATH.parent) + args.data_path + '/train/*'
+        self.val_path = str(ROOT_PATH.parent) + args.data_path + '/val/*'
+        self.test_path = str(ROOT_PATH.parent) + args.data_path + '/test/*'
         self.load_data_and_fields()
 
     def _prepare_data(self, data):
@@ -37,8 +27,7 @@ class CSQADataset(object):
                 logical_form = []
                 ner_tag = []
                 coref = []
-                predicate_cls = []
-                type_cls = []
+                graph_cls = []
 
                 if is_clarification:
                     is_clarification = False
@@ -224,33 +213,27 @@ class CSQADataset(object):
                 for action in gold_actions:
                     if action[0] == ACTION:
                         logical_form.append(action[1])
-                        predicate_cls.append(NA_TOKEN)
-                        type_cls.append(NA_TOKEN)
+                        graph_cls.append(NA_TOKEN)
                     elif action[0] == RELATION:
                         logical_form.append(RELATION)
-                        predicate_cls.append(action[1])
-                        type_cls.append(NA_TOKEN)
+                        graph_cls.append(action[1])
                     elif action[0] == TYPE:
                         logical_form.append(TYPE)
-                        predicate_cls.append(NA_TOKEN)
-                        type_cls.append(action[1])
+                        graph_cls.append(action[1])
                     elif action[0] == ENTITY:
                         logical_form.append(PREV_ANSWER if action[1] == PREV_ANSWER else ENTITY)
-                        predicate_cls.append(NA_TOKEN)
-                        type_cls.append(NA_TOKEN)
+                        graph_cls.append(NA_TOKEN)
                     elif action[0] == VALUE:
                         logical_form.append(action[0])
-                        predicate_cls.append(NA_TOKEN)
-                        type_cls.append(NA_TOKEN)
+                        graph_cls.append(NA_TOKEN)
                     else:
                         raise Exception(f'Unkown logical form action {action[0]}')
 
                 assert len(input) == len(ner_tag)
                 assert len(input) == len(coref)
-                assert len(logical_form) == len(predicate_cls)
-                assert len(logical_form) == len(type_cls)
+                assert len(logical_form) == len(graph_cls)
 
-                input_data.append([input, logical_form, ner_tag, list(reversed(coref)), predicate_cls, type_cls])
+                input_data.append([input, logical_form, ner_tag, list(reversed(coref)), graph_cls])
                 helper_data[QUESTION_TYPE].append(user['question-type'])
 
         return input_data, helper_data
@@ -278,7 +261,6 @@ class CSQADataset(object):
             turns = len(conversation) // 2
             for i in range(turns):
                 input = []
-                question_type = ''
                 gold_entities = []
 
                 if is_clarification:
@@ -340,6 +322,7 @@ class CSQADataset(object):
                     for context in next_user['context']:
                         input.append(context[1])
 
+                    question_type = [user['question-type'], next_user['question-type']] if 'question-type' in next_user else user['question-type']
                     results = next_system['all_entities']
                     answer = next_system['utterance']
                     gold_actions = next_system[GOLD_ACTIONS] if GOLD_ACTIONS in next_system else None
@@ -378,7 +361,7 @@ class CSQADataset(object):
                     for context in user['context']:
                         input.append(context[1])
 
-                    question = user['utterance']
+                    question_type = user['question-type']
                     results = system['all_entities']
                     answer = system['utterance']
                     gold_actions = system[GOLD_ACTIONS] if GOLD_ACTIONS in system else None
@@ -392,7 +375,7 @@ class CSQADataset(object):
                     prev_system_conv = system.copy()
 
                 inference_data.append({
-                    QUESTION_TYPE: user['question-type'],
+                    QUESTION_TYPE: question_type,
                     QUESTION: user['utterance'],
                     CONTEXT_QUESTION: input,
                     CONTEXT_ENTITIES: context_entities,
@@ -458,13 +441,7 @@ class CSQADataset(object):
                                 unk_token='0',
                                 batch_first=True)
 
-        self.predicate_field = Field(init_token=NA_TOKEN,
-                                eos_token=NA_TOKEN,
-                                pad_token=PAD_TOKEN,
-                                unk_token=NA_TOKEN,
-                                batch_first=True)
-
-        self.type_field = Field(init_token=NA_TOKEN,
+        self.graph_field = Field(init_token=NA_TOKEN,
                                 eos_token=NA_TOKEN,
                                 pad_token=PAD_TOKEN,
                                 unk_token=NA_TOKEN,
@@ -472,7 +449,7 @@ class CSQADataset(object):
 
         fields_tuple = [(INPUT, self.input_field), (LOGICAL_FORM, self.lf_field),
                         (NER, self.ner_field), (COREF, self.coref_field),
-                        (PREDICATE, self.predicate_field), (TYPE, self.type_field)]
+                        (GRAPH, self.graph_field)]
 
         # create toechtext datasets
         self.train_data = self._make_torchtext_dataset(train, fields_tuple)
@@ -484,8 +461,7 @@ class CSQADataset(object):
         self.lf_field.build_vocab(self.train_data, self.val_data, self.test_data, min_freq=0)
         self.ner_field.build_vocab(self.train_data, self.val_data, self.test_data, min_freq=0)
         self.coref_field.build_vocab(self.train_data, self.val_data, self.test_data, min_freq=0)
-        self.predicate_field.build_vocab(self.train_data, self.val_data, self.test_data, min_freq=0)
-        self.type_field.build_vocab(self.train_data, self.val_data, self.test_data, min_freq=0)
+        self.graph_field.build_vocab(self.train_data, self.val_data, self.test_data, min_freq=0)
 
     def get_data(self):
         return self.train_data, self.val_data, self.test_data
@@ -499,8 +475,7 @@ class CSQADataset(object):
             LOGICAL_FORM: self.lf_field,
             NER: self.ner_field,
             COREF: self.coref_field,
-            PREDICATE: self.predicate_field,
-            TYPE: self.type_field
+            GRAPH: self.graph_field,
         }
 
     def get_vocabs(self):
@@ -509,6 +484,5 @@ class CSQADataset(object):
             LOGICAL_FORM: self.lf_field.vocab,
             NER: self.ner_field.vocab,
             COREF: self.coref_field.vocab,
-            PREDICATE: self.predicate_field.vocab,
-            TYPE: self.type_field.vocab
+            GRAPH: self.graph_field.vocab,
         }

@@ -93,8 +93,7 @@ class Predictor(object):
 
         # get logical form, predicate and type prediction
         lf_out = [self.vocabs[LOGICAL_FORM].stoi[START_TOKEN]]
-        predicate_out = [self.vocabs[PREDICATE].stoi[NA_TOKEN]]
-        type_out = [self.vocabs[TYPE].stoi[NA_TOKEN]]
+        graph_out = [self.vocabs[GRAPH].stoi[NA_TOKEN]]
 
         for _ in range(self.model.decoder.max_positions):
             lf_tensor = torch.LongTensor(lf_out).unsqueeze(0).to(self.device)
@@ -102,22 +101,19 @@ class Predictor(object):
             decoder_step = self.model._predict_decoder(src_tensor, lf_tensor, encoder_step[ENCODER_OUT])
 
             pred_lf = decoder_step[DECODER_OUT].argmax(1)[-1].item()
-            pred_predicate = decoder_step[PREDICATE].argmax(1)[-1].item()
-            pred_type = decoder_step[TYPE].argmax(1)[-1].item()
+            pred_graph = decoder_step[GRAPH].argmax(1)[-1].item()
 
             if pred_lf == self.vocabs[LOGICAL_FORM].stoi[END_TOKEN]:
                 break
 
             lf_out.append(pred_lf)
-            predicate_out.append(pred_predicate)
-            type_out.append(pred_type)
+            graph_out.append(pred_graph)
 
         # translate top predictions into vocab tokens
         model_out[LOGICAL_FORM] = [self.vocabs[LOGICAL_FORM].itos[i] for i in lf_out][1:]
         model_out[NER] = [self.vocabs[NER].itos[i] for i in ner_out][1:-1]
         model_out[COREF] = [self.vocabs[COREF].itos[i] for i in coref_out][1:-1]
-        model_out[PREDICATE] = [self.vocabs[PREDICATE].itos[i] for i in predicate_out][1:]
-        model_out[TYPE] = [self.vocabs[TYPE].itos[i] for i in type_out][1:]
+        model_out[GRAPH] = [self.vocabs[GRAPH].itos[i] for i in graph_out][1:]
 
         return model_out
 
@@ -141,7 +137,7 @@ class AccuracyMeter(object):
 class Scorer(object):
     """Scorer class"""
     def __init__(self):
-        self.tasks = [TOTAL, LOGICAL_FORM, NER, COREF, PREDICATE, TYPE]
+        self.tasks = [TOTAL, LOGICAL_FORM, NER, COREF, GRAPH]
         self.results = {
             OVERALL: {task:AccuracyMeter() for task in self.tasks},
             CLARIFICATION: {task:AccuracyMeter() for task in self.tasks},
@@ -165,8 +161,7 @@ class Scorer(object):
             ref_lf = [t.lower() for t in example.logical_form]
             ref_ner = example.ner
             ref_coref = example.coref
-            ref_pred = example.predicate
-            ref_type = example.type
+            ref_graph = example.graph
 
             # get model hypothesis
             hypothesis = predictor.predict(example.input)
@@ -175,26 +170,23 @@ class Scorer(object):
             correct_lf = 1 if ref_lf == hypothesis[LOGICAL_FORM] else 0
             correct_ner = 1 if ref_ner == hypothesis[NER] else 0
             correct_coref = 1 if ref_coref == hypothesis[COREF] else 0
-            correct_pred = 1 if ref_pred == hypothesis[PREDICATE] else 0
-            correct_type = 1 if ref_type == hypothesis[TYPE] else 0
+            correct_graph = 1 if ref_graph == hypothesis[GRAPH] else 0
 
             # save results
             gold = 1
-            res = 1 if correct_lf and correct_ner and correct_coref and correct_pred and correct_type else 0
+            res = 1 if correct_lf and correct_ner and correct_coref and correct_graph else 0
             # Question type
             self.results[q_type][TOTAL].update(gold, res)
             self.results[q_type][LOGICAL_FORM].update(ref_lf, hypothesis[LOGICAL_FORM])
             self.results[q_type][NER].update(ref_ner, hypothesis[NER])
             self.results[q_type][COREF].update(ref_coref, hypothesis[COREF])
-            self.results[q_type][PREDICATE].update(ref_pred, hypothesis[PREDICATE])
-            self.results[q_type][TYPE].update(ref_type, hypothesis[TYPE])
+            self.results[q_type][GRAPH].update(ref_graph, hypothesis[GRAPH])
             # Overall
             self.results[OVERALL][TOTAL].update(gold, res)
             self.results[OVERALL][LOGICAL_FORM].update(ref_lf, hypothesis[LOGICAL_FORM])
             self.results[OVERALL][NER].update(ref_ner, hypothesis[NER])
             self.results[OVERALL][COREF].update(ref_coref, hypothesis[COREF])
-            self.results[OVERALL][PREDICATE].update(ref_pred, hypothesis[PREDICATE])
-            self.results[OVERALL][TYPE].update(ref_type, hypothesis[TYPE])
+            self.results[OVERALL][GRAPH].update(ref_graph, hypothesis[GRAPH])
 
             # save data
             self.data_dict.append({
@@ -205,16 +197,13 @@ class Scorer(object):
                 f'{NER}_gold': example.ner,
                 COREF: hypothesis[COREF],
                 f'{COREF}_gold': example.coref,
-                PREDICATE: hypothesis[PREDICATE],
-                f'{PREDICATE}_gold': example.predicate,
-                TYPE: hypothesis[TYPE],
-                f'{TYPE}_gold': example.type,
+                GRAPH: hypothesis[GRAPH],
+                f'{GRAPH}_gold': example.graph,
                 # ------------------------------------
                 f'{LOGICAL_FORM}_correct': correct_lf,
                 f'{NER}_correct': correct_ner,
                 f'{COREF}_correct': correct_coref,
-                f'{PREDICATE}_correct': correct_pred,
-                f'{TYPE}_correct': correct_type,
+                f'{GRAPH}_correct': correct_graph,
                 IS_CORRECT: res,
                 QUESTION_TYPE: q_type
             })
@@ -229,7 +218,7 @@ class Scorer(object):
         save_dict_no_space_1 = re.sub(r'": \[\s+', '": [', save_dict)
         save_dict_no_space_2 = re.sub(r'",\s+', '", ', save_dict_no_space_1)
         save_dict_no_space_3 = re.sub(r'"\s+\]', '"]', save_dict_no_space_2)
-        with open(f'{ROOT_PATH}/{path}/error_analysis.json', 'w', encoding='utf-8') as json_file:
+        with open(f'{ROOT_PATH}/{args.path_error_analysis}/error_analysis.json', 'w', encoding='utf-8') as json_file:
             json_file.write(save_dict_no_space_3)
 
     def reset(self):
@@ -246,7 +235,7 @@ class Inference(object):
     def construct_actions(self, inference_data, predictor):
         tic = time.perf_counter()
         # based on model outpus create a final logical form to execute
-        question_type_inference_data = [data for data in inference_data if data[QUESTION_TYPE] == args.question_type]
+        question_type_inference_data = [data for data in inference_data if args.question_type in data[QUESTION_TYPE]]
         for i, sample in enumerate(question_type_inference_data):
             predictions = predictor.predict(sample['context_question'])
             actions = []
@@ -276,8 +265,17 @@ class Inference(object):
                                         print(f'Coref index {cidx} not in ner entities!')
                                         actions.append([ENTITY, ENTITY])
                                         break
-                        elif args.question_type == VERIFICATION and ent_count_pos == 0 and not coref_indices: # simple constraint for verification
-                            actions.append([ENTITY, ner_idx_ent.popitem()[1][0]])
+                            try:
+                                actions.append([ENTITY, ner_idx_ent.popitem()[1][0]])
+                            except:
+                                print('No coref indices!')
+                                actions.append([ENTITY, ENTITY])
+                        elif args.question_type in [VERIFICATION, SIMPLE_DIRECT, CLARIFICATION] and ent_count_pos == 0 and not coref_indices: # simple constraint for verification and simple question (direct)
+                            try:
+                                actions.append([ENTITY, ner_idx_ent.popitem()[1][0]])
+                            except:
+                                print('No coref indices!')
+                                actions.append([ENTITY, ENTITY])
                         else:
                             # TODO here things get hard, we will need to use all ner entites and see if it works
                             print('No coref indices!')
@@ -295,13 +293,13 @@ class Inference(object):
                     # update entity position counter
                     ent_count_pos += 1
                 elif action == RELATION:
-                    predicate_prediction = predictions[PREDICATE]
+                    predicate_prediction = predictions[GRAPH]
                     if predicate_prediction[j].startswith('P'):
                         actions.append([RELATION, predicate_prediction[j]])
                     else: # Predicate
                         print(f'Predicate prediction not in correct position: {sample}')
                 elif action == TYPE:
-                    type_prediction = predictions[TYPE]
+                    type_prediction = predictions[GRAPH]
                     if type_prediction[j].startswith('Q'):
                         actions.append([TYPE, type_prediction[j]])
                     else: # Type
@@ -416,20 +414,18 @@ class MultiTaskLoss(nn.Module):
         self.lf_loss = SingleTaskLoss(ignore_index)
         self.ner_loss = SingleTaskLoss(ignore_index)
         self.coref_loss = SingleTaskLoss(ignore_index)
-        self.predicate_loss = SingleTaskLoss(ignore_index)
-        self.type_loss = SingleTaskLoss(ignore_index)
+        self.graph_loss = SingleTaskLoss(ignore_index)
 
-        self.mml_emp = torch.Tensor([True, True, True, True, True])
+        self.mml_emp = torch.Tensor([True, True, True, True])
         self.log_vars = torch.nn.Parameter(torch.zeros(len(self.mml_emp)))
 
-    def forward(self, output, target, task='multi_task'):
+    def forward(self, output, target):
         # weighted loss
         task_losses = torch.stack((
             self.lf_loss(output[LOGICAL_FORM], target[LOGICAL_FORM]),
             self.ner_loss(output[NER], target[NER]),
             self.coref_loss(output[COREF], target[COREF]),
-            self.predicate_loss(output[PREDICATE], target[PREDICATE]),
-            self.type_loss(output[TYPE], target[TYPE])
+            self.graph_loss(output[GRAPH], target[GRAPH])
         ))
 
         dtype = task_losses.dtype
@@ -442,8 +438,7 @@ class MultiTaskLoss(nn.Module):
             LOGICAL_FORM: losses[0],
             NER: losses[1],
             COREF: losses[2],
-            PREDICATE: losses[3],
-            TYPE: losses[4],
+            GRAPH: losses[3],
             MULTITASK: losses.mean()
         }[args.task]
 

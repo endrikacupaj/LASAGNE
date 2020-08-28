@@ -20,8 +20,7 @@ INPUT = 'input'
 LOGICAL_FORM = 'logical_form'
 NER = 'ner'
 COREF = 'coref'
-PREDICATE = 'predicate'
-TYPE = 'type'
+GRAPH = 'graph'
 MULTITASK = 'multitask'
 
 # helper tokens
@@ -66,6 +65,7 @@ COMPARATIVE_COUNT = 'Comparative Reasoning (Count) (All)'
 # action related
 ENTITY = 'entity'
 RELATION = 'relation'
+TYPE = 'type'
 VALUE = 'value'
 PREV_ANSWER = 'prev_answer'
 ACTION = 'action'

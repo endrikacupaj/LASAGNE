@@ -22,8 +22,7 @@ def get_parser():
                                                                 'logical_form',
                                                                 'ner',
                                                                 'coref',
-                                                                'predicate',
-                                                                'type'], type=str)
+                                                                'graph'], type=str)
 
     # model
     parser.add_argument('--emb_dim', default=300, type=int)
@@ -32,6 +31,8 @@ def get_parser():
     parser.add_argument('--layers', default=2, type=int)
     parser.add_argument('--max_positions', default=1000, type=int)
     parser.add_argument('--pf_dim', default=300, type=int)
+    parser.add_argument('--graph_heads', default=2, type=int)
+    parser.add_argument('--bert_dim', default=3072, type=int)
 
     # training
     parser.add_argument('--lr', default=0.0001, type=float)
@@ -39,17 +40,17 @@ def get_parser():
     parser.add_argument('--warmup', default=4000, type=float)
     parser.add_argument('--factor', default=1, type=float)
     parser.add_argument('--weight_decay', default=0, type=float)
-    parser.add_argument('--epochs', default=20, type=int)
+    parser.add_argument('--epochs', default=30, type=int)
     parser.add_argument('--start_epoch', default=0, type=int)
     parser.add_argument('--valfreq', default=1, type=int)
     parser.add_argument('--resume', default='', type=str)
     parser.add_argument('--clip', default=5, type=int)
-    parser.add_argument('--batch_size', default=64, type=int)
+    parser.add_argument('--batch_size', default=90, type=int)
 
     # test and inference
-    parser.add_argument('--model_path', default='experiments/snapshots/ConvQA_model_e5_v-0.0157.pth.tar', type=str)
+    parser.add_argument('--model_path', default='experiments/snapshots/gnn_old_64/ConvQA_model_e18_v-0.0166.pth.tar', type=str)
     parser.add_argument('--inference_partition', default='test', choices=['val', 'test'], type=str)
-    parser.add_argument('--question_type', default='Simple Question (Direct)',
+    parser.add_argument('--question_type', default='Clarification',
         choices=['Clarification',
                 'Comparative Reasoning (All)',
                 'Logical Reasoning (All)',

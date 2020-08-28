@@ -1,22 +1,120 @@
 import math
 import torch
 import torch.nn as nn
-import torch.onnx.operators
 import torch.nn.functional as F
 from torch.autograd import Variable
-from args import get_parser
-from utils import Embedding, Linear
-from const import PAD_TOKEN
+from graph import TypeRelationGraph
+from torch_geometric.nn import GATConv
 
-# read parser
-#parser = get_parser()
-#args = parser.parse_args()
-embDim = 300
-dropout = 0.1
-heads = 6
-pf_dim = 300
-max_positions = 500
-layers = 2
+# import constants
+from constants import *
+
+class ConvQA(nn.Module):
+    def __init__(self, vocabs):
+        super(ConvQA, self).__init__()
+        self.vocabs = vocabs
+        self.encoder = Encoder(vocabs[INPUT], DEVICE)
+        self.decoder = Decoder(vocabs[LOGICAL_FORM], DEVICE)
+        self.ner = NerNet(len(vocabs[NER]))
+        self.coref = SeqNet(len(vocabs[COREF]))
+        self.graph = TypeRelationGraph(vocabs[GRAPH]).data
+        self.graph_net = GraphNet(len(vocabs[GRAPH]))
+
+    def forward(self, src_tokens, trg_tokens):
+        encoder_out = self.encoder(src_tokens)
+        ner_out, ner_h = self.ner(encoder_out)
+        coref_out = self.coref(torch.cat([encoder_out, ner_h], dim=-1))
+        decoder_out, decoder_h = self.decoder(src_tokens, trg_tokens, encoder_out)
+        encoder_ctx = encoder_out[:, -1:, :]
+        graph_out = self.graph_net(encoder_ctx, decoder_h, self.graph)
+
+        return {
+            LOGICAL_FORM: decoder_out,
+            NER: ner_out,
+            COREF: coref_out,
+            GRAPH: graph_out
+        }
+
+    def _predict_encoder(self, src_tensor):
+        with torch.no_grad():
+            encoder_out = self.encoder(src_tensor)
+            ner_out, ner_h = self.ner(encoder_out)
+            coref_out = self.coref(torch.cat([encoder_out, ner_h], dim=-1))
+
+        return {
+            ENCODER_OUT: encoder_out,
+            NER: ner_out,
+            COREF: coref_out
+        }
+
+    def _predict_decoder(self, src_tokens, trg_tokens, encoder_out):
+        with torch.no_grad():
+            decoder_out, decoder_h = self.decoder(src_tokens, trg_tokens, encoder_out)
+            encoder_ctx = encoder_out[:, -1:, :]
+            graph_out = self.graph_net(encoder_ctx, decoder_h, self.graph)
+
+            return {
+                DECODER_OUT: decoder_out,
+                GRAPH: graph_out
+            }
+
+class LstmFlatten(nn.Module):
+    def forward(self, x):
+        return x[0].squeeze(1)
+
+class Flatten(nn.Module):
+    def forward(self, x):
+        return x.contiguous().view(-1, x.shape[-1])
+
+class NerNet(nn.Module):
+    def __init__(self, tags, dropout=args.dropout):
+        super(NerNet, self).__init__()
+        self.ner_lstm = nn.Sequential(
+            nn.LSTM(input_size=args.emb_dim, hidden_size=args.emb_dim, batch_first=True),
+            LstmFlatten(),
+            nn.LeakyReLU()
+        )
+
+        self.ner_linear = nn.Sequential(
+            Flatten(),
+            nn.Dropout(dropout),
+            nn.Linear(args.emb_dim, tags)
+        )
+
+    def forward(self, x):
+        h = self.ner_lstm(x)
+        return self.ner_linear(h), h
+
+class SeqNet(nn.Module):
+    def __init__(self, tags, dropout=args.dropout):
+        super(SeqNet, self).__init__()
+        self.seq_net = nn.Sequential(
+            nn.Linear(args.emb_dim*2, args.emb_dim),
+            nn.LeakyReLU(),
+            Flatten(),
+            nn.Dropout(dropout),
+            nn.Linear(args.emb_dim, tags)
+        )
+
+    def forward(self, x):
+        return self.seq_net(x)
+
+class GraphNet(nn.Module):
+    def __init__(self, num_nodes):
+        super(GraphNet, self).__init__()
+        self.seq_net = SeqNet(num_nodes)
+        self.conv = GATConv(args.bert_dim, args.emb_dim, heads=args.graph_heads, dropout=args.dropout)
+        self.dropout = nn.Dropout(args.dropout)
+        self.linear_out = nn.Linear((args.emb_dim*args.graph_heads)+args.emb_dim, args.emb_dim)
+        self.score = nn.Linear(args.emb_dim, 1)
+
+    def forward(self, encoder_ctx, decoder_h, graph):
+        x = self.seq_net(torch.cat([encoder_ctx.expand(decoder_h.shape), decoder_h], dim=-1))
+        g = self.conv(graph.x, graph.edge_index)
+        g = self.dropout(g)
+        g = self.linear_out(torch.cat([encoder_ctx.repeat(1, graph.x.shape[0], 1), g.unsqueeze(0).repeat(encoder_ctx.shape[0], 1, 1)], dim=-1))
+        g = Flatten()(self.score(g).squeeze(-1).unsqueeze(1).repeat(1, decoder_h.shape[1], 1))
+        return x * g
 
 class Encoder(nn.Module):
     def __init__(self, vocabulary, device, embed_dim=args.emb_dim, layers=args.layers,
@@ -177,7 +275,6 @@ class PositionwiseFeedforward(nn.Module):
         return self.linear_2(x)
 
 class PositionalEmbedding(nn.Module):
-    "Implement the PE function."
     def __init__(self, d_model, dropout, max_len=5000):
         super().__init__()
         pos_embed = torch.zeros(max_len, d_model)

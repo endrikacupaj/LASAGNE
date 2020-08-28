@@ -9,8 +9,8 @@ import torch.optim
 import torch.nn as nn
 from pathlib import Path
 from args import get_parser
-from models.model import ConvQA
-from csqa_dataset import CSQADataset
+from model import ConvQA
+from dataset import CSQADataset
 from torchtext.data import BucketIterator
 from utils import (NoamOpt, AverageMeter,
                     SingleTaskLoss, MultiTaskLoss,
@@ -38,7 +38,7 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed_all(args.seed)
 
 # define device
-torch.cuda.set_device(0)
+torch.cuda.set_device(1)
 
 def main():
     # load data
@@ -59,8 +59,7 @@ def main():
         LOGICAL_FORM: SingleTaskLoss,
         NER: SingleTaskLoss,
         COREF: SingleTaskLoss,
-        PREDICATE: SingleTaskLoss,
-        TYPE: SingleTaskLoss,
+        GRAPH: SingleTaskLoss,
         MULTITASK: MultiTaskLoss
     }[args.task](ignore_index=vocabs[LOGICAL_FORM].stoi[PAD_TOKEN])
 
@@ -98,8 +97,7 @@ def main():
     logger.info(f"Unique tokens in logical form vocabulary: {len(vocabs[LOGICAL_FORM])}")
     logger.info(f"Unique tokens in ner vocabulary: {len(vocabs[NER])}")
     logger.info(f"Unique tokens in coref vocabulary: {len(vocabs[COREF])}")
-    logger.info(f"Unique tokens in predicate vocabulary: {len(vocabs[PREDICATE])}")
-    logger.info(f"Unique tokens in type vocabulary: {len(vocabs[TYPE])}")
+    logger.info(f"Number of nodes in the graph: {len(vocabs[GRAPH])}")
     logger.info(f'Batch: {args.batch_size}')
     logger.info(f'Epochs: {args.epochs}')
 
@@ -135,8 +133,7 @@ def train(train_loader, model, vocabs, criterion, optimizer, epoch):
         logical_form = batch.logical_form
         ner = batch.ner
         coref = batch.coref
-        predicate_cls = batch.predicate
-        type_cls = batch.type
+        graph = batch.graph
 
         # compute output
         output = model(input, logical_form[:, :-1])
@@ -146,8 +143,7 @@ def train(train_loader, model, vocabs, criterion, optimizer, epoch):
             LOGICAL_FORM: logical_form[:, 1:].contiguous().view(-1), # (batch_size * trg_len)
             NER: ner.contiguous().view(-1),
             COREF: coref.contiguous().view(-1),
-            PREDICATE: predicate_cls[:, 1:].contiguous().view(-1),
-            TYPE: type_cls[:, 1:].contiguous().view(-1)
+            GRAPH: graph[:, 1:].contiguous().view(-1)
         }
 
         # compute loss
@@ -181,8 +177,7 @@ def validate(val_loader, model, vocabs, criterion):
             logical_form = batch.logical_form
             ner = batch.ner
             coref = batch.coref
-            predicate_cls = batch.predicate
-            type_cls = batch.type
+            graph = batch.graph
 
             # compute output
             output = model(input, logical_form[:, :-1])
@@ -192,8 +187,7 @@ def validate(val_loader, model, vocabs, criterion):
                 LOGICAL_FORM: logical_form[:, 1:].contiguous().view(-1), # (batch_size * trg_len)
                 NER: ner.contiguous().view(-1),
                 COREF: coref.contiguous().view(-1),
-                PREDICATE: predicate_cls[:, 1:].contiguous().view(-1),
-                TYPE: type_cls[:, 1:].contiguous().view(-1)
+                GRAPH: graph[:, 1:].contiguous().view(-1)
             }
 
             # compute loss
