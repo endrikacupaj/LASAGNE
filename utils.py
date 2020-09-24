@@ -86,28 +86,29 @@ class Predictor(object):
         numericalized = [self.vocabs[INPUT].stoi[token] if token in self.vocabs[INPUT].stoi else self.vocabs[INPUT].stoi[UNK_TOKEN] for token in tokenized_sentence]
         src_tensor = torch.LongTensor(numericalized).unsqueeze(0).to(self.device)
 
-        # get ner, coref predictions
-        encoder_step = self.model._predict_encoder(src_tensor)
-        ner_out = encoder_step[NER].argmax(1).tolist()
-        coref_out = encoder_step[COREF].argmax(1).tolist()
+        with torch.no_grad():
+            # get ner, coref predictions
+            encoder_step = self.model._predict_encoder(src_tensor)
+            ner_out = encoder_step[NER].argmax(1).tolist()
+            coref_out = encoder_step[COREF].argmax(1).tolist()
 
-        # get logical form, predicate and type prediction
-        lf_out = [self.vocabs[LOGICAL_FORM].stoi[START_TOKEN]]
-        graph_out = [self.vocabs[GRAPH].stoi[NA_TOKEN]]
+            # get logical form, predicate and type prediction
+            lf_out = [self.vocabs[LOGICAL_FORM].stoi[START_TOKEN]]
+            graph_out = [self.vocabs[GRAPH].stoi[NA_TOKEN]]
 
-        for _ in range(self.model.decoder.max_positions):
-            lf_tensor = torch.LongTensor(lf_out).unsqueeze(0).to(self.device)
+            for _ in range(self.model.decoder.max_positions):
+                lf_tensor = torch.LongTensor(lf_out).unsqueeze(0).to(self.device)
 
-            decoder_step = self.model._predict_decoder(src_tensor, lf_tensor, encoder_step[ENCODER_OUT])
+                decoder_step = self.model._predict_decoder(src_tensor, lf_tensor, encoder_step[ENCODER_OUT])
 
-            pred_lf = decoder_step[DECODER_OUT].argmax(1)[-1].item()
-            pred_graph = decoder_step[GRAPH].argmax(1)[-1].item()
+                pred_lf = decoder_step[DECODER_OUT].argmax(1)[-1].item()
+                pred_graph = decoder_step[GRAPH].argmax(1)[-1].item()
 
-            if pred_lf == self.vocabs[LOGICAL_FORM].stoi[END_TOKEN]:
-                break
+                if pred_lf == self.vocabs[LOGICAL_FORM].stoi[END_TOKEN]:
+                    break
 
-            lf_out.append(pred_lf)
-            graph_out.append(pred_graph)
+                lf_out.append(pred_lf)
+                graph_out.append(pred_graph)
 
         # translate top predictions into vocab tokens
         model_out[LOGICAL_FORM] = [self.vocabs[LOGICAL_FORM].itos[i] for i in lf_out][1:]
@@ -395,7 +396,7 @@ class Inference(object):
             json_file.write(json.dumps(self.inference_actions, indent=4))
 
 def save_checkpoint(state):
-    filename = f'{ROOT_PATH}/{args.snapshots}/ConvQA_model_e{state[EPOCH]}_v-{state[CURR_VAL]:.4f}.pth.tar'
+    filename = f'{ROOT_PATH}/{args.snapshots}/{MODEL_NAME}_e{state[EPOCH]}_v{state[CURR_VAL]:.4f}_{args.task}.pth.tar'
     torch.save(state, filename)
 
 class SingleTaskLoss(nn.Module):

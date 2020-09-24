@@ -24,7 +24,7 @@ logging.basicConfig(format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s'
                     datefmt='%d/%m/%Y %I:%M:%S %p',
                     level=logging.INFO,
                     handlers=[
-                        logging.FileHandler(f'{args.path_results}/train.log', 'w'),
+                        logging.FileHandler(f'{args.path_results}/train_{args.task}.log', 'w'),
                         logging.StreamHandler()
                     ])
 logger = logging.getLogger(__name__)
@@ -36,9 +36,6 @@ if torch.cuda.is_available():
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
-
-# define device
-torch.cuda.set_device(1)
 
 def main():
     # load data
@@ -147,7 +144,7 @@ def train(train_loader, model, vocabs, criterion, optimizer, epoch):
         }
 
         # compute loss
-        loss = criterion(output, target)
+        loss = criterion(output, target) if args.task == MULTITASK else criterion(output[args.task], target[args.task])
 
         # record loss
         losses.update(loss.data, input.size(0))
@@ -191,7 +188,7 @@ def validate(val_loader, model, vocabs, criterion):
             }
 
             # compute loss
-            loss = criterion(output, target)
+            loss = criterion(output, target) if args.task == MULTITASK else criterion(output[args.task], target[args.task])
 
             # record loss
             losses.update(loss.data, input.size(0))

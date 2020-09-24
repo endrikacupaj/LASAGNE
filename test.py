@@ -33,9 +33,6 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
 
-# define device
-torch.cuda.set_device(2)
-
 def main():
     # load data
     dataset = CSQADataset()
@@ -124,7 +121,7 @@ def test(loader, model, vocabs, criterion):
             }
 
             # compute loss
-            loss = criterion(output, target)
+            loss = criterion(output, target) if args.task == MULTITASK else criterion(output[args.task], target[args.task])
 
             # record loss
             losses.update(loss.data, input.size(0))

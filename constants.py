@@ -10,6 +10,9 @@ ROOT_PATH = Path(os.path.dirname(__file__))
 parser = get_parser()
 args = parser.parse_args()
 
+# model name
+MODEL_NAME = 'LASAGNE'
+
 # define device
 CUDA = 'cuda'
 CPU = 'cpu'
