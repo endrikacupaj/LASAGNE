@@ -1,0 +1,12 @@
+dgl==0.4.3.post2
+transformers==2.8.0
+Unidecode==1.1.1
+torch_geometric==1.6.1
+torchtext==0.4.0
+networkx==2.2
+flair==0.4.4
+ujson==2.0.3
+torch_nightly==1.1.0.dev20190502
+elasticsearch==7.8.1
+numpy==1.17.4
+torch==1.6.0
