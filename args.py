@@ -9,7 +9,7 @@ def get_parser():
     parser.add_argument('--cuda_device', default=0, type=int)
 
     # data
-    parser.add_argument('--data_path', default='/data/final/csqa')
+    parser.add_argument('--data_path', default='/data/csqa')
 
     # experiments
     parser.add_argument('--snapshots', default='experiments/snapshots', type=str)
