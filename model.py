@@ -9,14 +9,14 @@ from torch_geometric.nn import GATConv
 # import constants
 from constants import *
 
-class ConvQA(nn.Module):
+class LASAGNE(nn.Module):
     def __init__(self, vocabs):
-        super(ConvQA, self).__init__()
+        super(LASAGNE, self).__init__()
         self.vocabs = vocabs
         self.encoder = Encoder(vocabs[INPUT], DEVICE)
         self.decoder = Decoder(vocabs[LOGICAL_FORM], DEVICE)
         self.ner = NerNet(len(vocabs[NER]))
-        self.coref = SeqNet(len(vocabs[COREF]))
+        self.coref = CorefNet(len(vocabs[COREF]))
         self.graph = TypeRelationGraph(vocabs[GRAPH]).data
         self.graph_net = GraphNet(len(vocabs[GRAPH]))
 
@@ -85,9 +85,9 @@ class NerNet(nn.Module):
         h = self.ner_lstm(x)
         return self.ner_linear(h), h
 
-class SeqNet(nn.Module):
+class CorefNet(nn.Module):
     def __init__(self, tags, dropout=args.dropout):
-        super(SeqNet, self).__init__()
+        super(CorefNet, self).__init__()
         self.seq_net = nn.Sequential(
             nn.Linear(args.emb_dim*2, args.emb_dim),
             nn.LeakyReLU(),
@@ -102,18 +102,24 @@ class SeqNet(nn.Module):
 class GraphNet(nn.Module):
     def __init__(self, num_nodes):
         super(GraphNet, self).__init__()
-        self.seq_net = SeqNet(num_nodes)
-        self.conv = GATConv(args.bert_dim, args.emb_dim, heads=args.graph_heads, dropout=args.dropout)
+        self.gat = GATConv(args.bert_dim, args.emb_dim, heads=args.graph_heads, dropout=args.dropout)
         self.dropout = nn.Dropout(args.dropout)
         self.linear_out = nn.Linear((args.emb_dim*args.graph_heads)+args.emb_dim, args.emb_dim)
         self.score = nn.Linear(args.emb_dim, 1)
+        self.context_net = nn.Sequential(
+            nn.Linear(args.emb_dim*2, args.emb_dim),
+            nn.LeakyReLU(),
+            Flatten(),
+            nn.Dropout(args.dropout),
+            nn.Linear(args.emb_dim, num_nodes)
+        )
 
     def forward(self, encoder_ctx, decoder_h, graph):
-        x = self.seq_net(torch.cat([encoder_ctx.expand(decoder_h.shape), decoder_h], dim=-1))
-        g = self.conv(graph.x, graph.edge_index)
+        g = self.gat(graph.x, graph.edge_index)
         g = self.dropout(g)
         g = self.linear_out(torch.cat([encoder_ctx.repeat(1, graph.x.shape[0], 1), g.unsqueeze(0).repeat(encoder_ctx.shape[0], 1, 1)], dim=-1))
         g = Flatten()(self.score(g).squeeze(-1).unsqueeze(1).repeat(1, decoder_h.shape[1], 1))
+        x = self.context_net(torch.cat([encoder_ctx.expand(decoder_h.shape), decoder_h], dim=-1))
         return x * g
 
 class Encoder(nn.Module):

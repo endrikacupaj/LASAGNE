@@ -9,7 +9,7 @@ import torch.optim
 import torch.nn as nn
 from pathlib import Path
 from args import get_parser
-from model import ConvQA
+from model import LASAGNE
 from dataset import CSQADataset
 from torchtext.data import BucketIterator
 from utils import (NoamOpt, AverageMeter,
@@ -44,7 +44,7 @@ def main():
     train_data, val_data, _ = dataset.get_data()
 
     # load model
-    model = ConvQA(vocabs).to(DEVICE)
+    model = LASAGNE(vocabs).to(DEVICE)
 
     # initialize model weights
     init_weights(model)

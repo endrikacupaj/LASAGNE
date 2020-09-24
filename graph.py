@@ -11,7 +11,6 @@ class TypeRelationGraph:
     def __init__(self, vocab, type_path=f'{ROOT_PATH}'):
         self.vocab = vocab
         self.existing_nodes = list(vocab.stoi.keys())
-        # self.nodes = torch.LongTensor(list(vocab.stoi.values()))
         self.type_triples = json.loads(open(f'{type_path}/knowledge_graph/wikidata_type_dict.json').read())
         self.bert_embeddings = json.loads(open(f'{type_path}/knowledge_graph/node_embeddings.json').read())
         self.nodes = torch.tensor([self.bert_embeddings[node] for node in self.existing_nodes], requires_grad=True)

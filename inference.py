@@ -2,7 +2,7 @@ import random
 import logging
 import torch
 import numpy as np
-from model import ConvQA
+from model import LASAGNE
 from dataset import CSQADataset
 from utils import Predictor, Inference
 
@@ -27,10 +27,6 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
 
-# define device
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-torch.cuda.set_device(1)
-
 def main():
     # load data
     dataset = CSQADataset()
@@ -43,7 +39,7 @@ def main():
     logger.info(f"Num of inference data: {len(inference_data)}")
 
     # load model
-    model = ConvQA(vocabs).to(DEVICE)
+    model = LASAGNE(vocabs).to(DEVICE)
 
     logger.info(f"=> loading checkpoint '{args.model_path}'")
     if DEVICE.type=='cpu':

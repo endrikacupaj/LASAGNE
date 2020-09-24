@@ -7,7 +7,7 @@ import numpy as np
 import torch.optim
 import torch.nn as nn
 from pathlib import Path
-from model import ConvQA
+from model import LASAGNE
 from dataset import CSQADataset
 from torchtext.data import BucketIterator
 from utils import SingleTaskLoss, MultiTaskLoss, AverageMeter, Scorer, Predictor
@@ -41,7 +41,7 @@ def main():
     _, val_helper, test_helper = dataset.get_data_helper()
 
     # load model
-    model = ConvQA(vocabs).to(DEVICE)
+    model = LASAGNE(vocabs).to(DEVICE)
 
     # define loss function (criterion)
     criterion = {
