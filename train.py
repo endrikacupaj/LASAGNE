@@ -24,7 +24,7 @@ logging.basicConfig(format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s'
                     datefmt='%d/%m/%Y %I:%M:%S %p',
                     level=logging.INFO,
                     handlers=[
-                        #logging.FileHandler(f'{args.path_results}/train_{args.task}.log', 'w'),
+                        logging.FileHandler(f'{args.path_results}/train_{args.task}.log', 'w'),
                         logging.StreamHandler()
                     ])
 logger = logging.getLogger(__name__)
