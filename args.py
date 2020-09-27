@@ -45,7 +45,7 @@ def get_parser():
     parser.add_argument('--valfreq', default=1, type=int)
     parser.add_argument('--resume', default='', type=str)
     parser.add_argument('--clip', default=5, type=int)
-    parser.add_argument('--batch_size', default=90, type=int)
+    parser.add_argument('--batch_size', default=50, type=int)
 
     # test and inference
     parser.add_argument('--model_path', default='experiments/snapshots/', type=str)
