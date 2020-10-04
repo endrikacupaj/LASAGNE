@@ -23,6 +23,9 @@ Since CSQA is based on Wikidata [Knowlegde Graph](https://www.wikidata.org/wiki/
 You can download the preprocessed files from here.
 After dowloading you will need to move them under the [knowledge_graph](knowledge_graph) directory.
 
+## Inverted index on Wikidata entities
+For building an inverted index on wikidata entities we use [elastic](https://www.elastic.co/) search. Consider the script file [csqa_elasticse.py](csqa_elasticse.py) for doing so.
+
 ## Annotate Dataset
 Next, using the preproccesed Wikidata files we can annotate annotate CSQA dataset with the grammar proposed in our paper. At the same time we also annotate the entity spans for all utterances.
 ``` bash
