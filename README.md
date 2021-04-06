@@ -30,7 +30,6 @@ CSQA dataset is based on Wikidata [Knowlegde Graph](https://www.wikidata.org/wik
 You can download the preprocessed Wikidata knowlegde graph files from [here](https://zenodo.org/record/4052427#.YBU7xHdKjfZ).
 After dowloading you will need to move them under the [knowledge_graph](knowledge_graph) directory.
 
-### Prepare Wikidata Knowlegde Graph Files
 We prefer to merge some JSON files from the preprocessed Wikidata, for accelerating the process of reading all the knowledge graph files. In particular, we create three new JSON files using the script [prepare_data.py](scripts/prepare_data.py). Please execute the script as below.
 ``` bash
 # prepare knowlegde graph files
@@ -47,7 +46,7 @@ Next, using the preproccesed Wikidata files we can annotate CSQA dataset with ou
 python annotate_csqa/preprocess.py --partition train --annotation_task all --read_folder /path/to/CSQA --write_folder /path/to/write
 ```
 
-## Create BERT embeddings
+## BERT embeddings
 Before training the framework, we need to create BERT embeddings for the knowledge graph (entity) types and relations. You can do that by running.
 ``` bash
 # create bert embeddings
