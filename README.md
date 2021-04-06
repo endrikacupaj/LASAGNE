@@ -37,7 +37,7 @@ python scripts/prepare_data.py
 ```
 
 ### Inverted index on Wikidata entities
-For building an inverted index on wikidata entities we use [elastic](https://www.elastic.co/) search. Consider the script file [csqa_elasticse.py](csqa_elasticse.py) for doing so.
+For building an inverted index on wikidata entities we use [elastic](https://www.elastic.co/) search. Consider the script file [csqa_elasticse.py](scripts/csqa_elasticse.py) for doing so.
 
 ### Annotate Dataset
 Next, using the preproccesed Wikidata files we can annotate CSQA dataset with our grammar. At the same time we also annotate the entity spans for all utterances.
