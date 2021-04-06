@@ -85,7 +85,7 @@ The repository is under [MIT License](LICENCE).
     kacupaj2021lasagne,
     title={Conversational Question Answering over Knowledge Graphs with Transformer and Graph Attention Networks},
     author={Endri Kacupaj and Joan Plepi and Kuldeep Singh and Harsh Thakkar and Jens Lehmann and Maria Maleshkova},
-    booktitle={16th conference of the European Chapter of the Association for Computational Linguistics (EACL 2021)},
+    booktitle={16th Conference of the European Chapter of the Association for Computational Linguistics (EACL 2021)},
     year={2021}
 }
 ```
