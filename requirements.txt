@@ -1,5 +1,5 @@
 dgl==0.4.3.post2
-transformers==2.8.0
+transformers==4.30.0
 Unidecode==1.1.1
 torch_geometric==1.6.1
 torchtext==0.4.0
